@@ -1,7 +1,13 @@
 package idk;
 
-import idk.Segment.Edge;
-import idk.Segment.Side;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.Set;
 
 public class Main {
 
@@ -12,275 +18,220 @@ public class Main {
         RailMLSegmentsStaxParser parser = new RailMLSegmentsStaxParser();
         List<Segment> segs = parser.parseSegments(xml);
 
-        System.out.println("Segmentos leídos: " + segs.size());
-
         Map<String, Segment> byId = new HashMap<>();
-        for (Segment s : segs) byId.put(s.id, s);
+        for (Segment s : segs) {
+            byId.put(s.id, s);
+        }
 
-        Map<String, List<Edge>> graph = buildGraph(segs, byId);
-        Map<String, List<Edge>> reverseGraph = buildReverseGraph(graph);
+        System.out.println("Segmentos leídos: " + segs.size());
 
         Scanner sc = new Scanner(System.in);
         System.out.print("Introduce PK (en metros, ej: 239000): ");
         double pk = sc.nextDouble();
 
-        double radius = 1000.0;
-
-        List<Segment> startSegments = findSegmentsContainingPk(segs, pk);
+        List<Segment> containing = findSegmentsContainingPk(segs, pk);
 
         System.out.println();
-        if (startSegments.isEmpty()) {
+
+        if (containing.isEmpty()) {
             System.out.println("No encontré ningún segmento que contenga el PK " + pk);
             return;
         }
 
         System.out.println("Segmentos que contienen el PK:");
-        for (Segment s : startSegments) {
-            System.out.println("  " + s.id + "  [min=" + s.minPos() + ", max=" + s.maxPos() + "]");
+        for (Segment s : containing) {
+            System.out.println("  " + s.id + "  [min=" + s.minPK() + ", max=" + s.maxPK() + "]");
         }
 
-        // DIRECTA
-        ReachResult direct = reachableWithinRadius(graph, byId, startSegments, pk, radius);
-        System.out.println();
-        System.out.println("RUTAS (DIRECTA) dentro de " + (int)radius + " m:");
-        printRoutes(direct, startSegments);
+        for (Segment s : containing) {
+            System.out.println();
+            System.out.println("==================================================");
+            System.out.println("SEGMENTO CANDIDATO: " + s.id);
+            System.out.println("==================================================");
 
-        FlagInfo fwd = computeFlagAtRadius(direct, byId, radius);
-        if (fwd != null) {
-            System.out.println("FLAG DIRECTA (radio 1 km desde PK=" + (int)pk + "):");
-            System.out.println("  Termina en " + fwd.segmentId + " en PK ~ " + String.format("%.1f", fwd.pkFlag));
-        }
+            List<String> directPath = buildSinglePath(s.id, byId, true);
+            List<String> inversePath = buildSinglePath(s.id, byId, false);
 
-        System.out.println();
-        System.out.println("Información (DIRECTA):");
-        printReachableTable(direct.dist, byId);
+            System.out.println("Directa (PK creciente):");
+            System.out.println("  " + String.join("=>", directPath));
 
-        // INVERSA
-        ReachResult inv = reachableWithinRadius(reverseGraph, byId, startSegments, pk, radius);
-        System.out.println();
-        System.out.println("RUTAS (INVERSA) dentro de " + (int)radius + " m:");
-        printRoutes(inv, startSegments);
+            System.out.println("Inversa (PK decreciente):");
+            System.out.println("  " + String.join("=>", inversePath));
 
-        FlagInfo back = computeFlagAtRadius(inv, byId, radius);
-        if (back != null) {
-            System.out.println("FLAG INVERSA (radio 1 km desde PK=" + (int)pk + "):");
-            System.out.println("  Termina en " + back.segmentId + " en PK ~ " + String.format("%.1f", back.pkFlag));
-        }
+            // Cálculo del punto a 1 km
+            FlagPosition directFlag = findObjectAtDistance(pk, s.id, directPath, byId, true, 1000.0);
+            FlagPosition inverseFlag = findObjectAtDistance(pk, s.id, inversePath, byId, false, 1000.0);
 
-        System.out.println();
-        System.out.println("Información (INVERSA):");
-        printReachableTable(inv.dist, byId);
-    }
-
-    // -------------------- Estructuras --------------------
-
-    static class ReachResult {
-        Map<String, Double> dist = new HashMap<>();
-        Map<String, String> parent = new HashMap<>();
-        Map<String, Side> entrySide = new HashMap<>(); // por qué lado “entras” al segmento (BEGIN/END)
-    }
-
-    static class NodeDist {
-        String nodeId;
-        double dist;
-        NodeDist(String nodeId, double dist) { this.nodeId = nodeId; this.dist = dist; }
-    }
-
-    static class FlagInfo {
-        String segmentId;
-        double pkFlag;
-        FlagInfo(String segmentId, double pkFlag) { this.segmentId = segmentId; this.pkFlag = pkFlag; }
-    }
-
-    // -------------------- Construcción de grafos --------------------
-
-    private static Map<String, List<Edge>> buildGraph(List<Segment> segs, Map<String, Segment> byId) {
-        Map<String, List<Edge>> g = new HashMap<>();
-        for (Segment s : segs) {
-            List<Edge> outs = new ArrayList<>();
-            for (Edge e : s.outEdges) {
-                if (byId.containsKey(e.toId)) outs.add(e);
+            System.out.println();
+            if (directFlag != null) {
+                System.out.println("Objeto a 1 km en DIRECTA:");
+                System.out.println("  Segmento: " + directFlag.segmentId);
+                System.out.println("  PK: " + directFlag.pk);
+            } else {
+                System.out.println("Objeto a 1 km en DIRECTA:");
+                System.out.println("  No se alcanza 1 km con la ruta calculada.");
             }
-            g.put(s.id, outs);
-        }
-        return g;
-    }
 
-    private static Map<String, List<Edge>> buildReverseGraph(Map<String, List<Edge>> graph) {
-        Map<String, List<Edge>> rev = new HashMap<>();
-        for (String id : graph.keySet()) rev.put(id, new ArrayList<>());
-
-        for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
-            String from = entry.getKey();
-            for (Edge e : entry.getValue()) {
-                // reversa: (from -> to) se convierte en (to -> from)
-                // Al ir “hacia atrás”, sales del 'to' por el lado por donde ENTRABAS (toSide)
-                // y entras al 'from' por el lado por donde SALÍAS (fromSide).
-                rev.computeIfAbsent(e.toId, k -> new ArrayList<>())
-                   .add(new Edge(from, e.toSide, e.fromSide));
+            if (inverseFlag != null) {
+                System.out.println("Objeto a 1 km en INVERSA:");
+                System.out.println("  Segmento: " + inverseFlag.segmentId);
+                System.out.println("  PK: " + inverseFlag.pk);
+            } else {
+                System.out.println("Objeto a 1 km en INVERSA:");
+                System.out.println("  No se alcanza 1 km con la ruta calculada.");
             }
-        }
-        return rev;
-    }
 
-    // -------------------- PK -> segmento(s) --------------------
+            System.out.println();
+            System.out.println("Detalle del segmento:");
+            System.out.println("  beginAbsPos = " + s.beginAbsPos);
+            System.out.println("  endAbsPos   = " + s.endAbsPos);
+            System.out.println("  length      = " + s.length());
+            System.out.println("  directNeighbors  = " + s.directNeighbors);
+            System.out.println("  inverseNeighbors = " + s.inverseNeighbors);
+
+            System.out.println();
+            System.out.println("Detalle de la ruta directa:");
+            printPathDetails(directPath, byId);
+
+            System.out.println();
+            System.out.println("Detalle de la ruta inversa:");
+            printPathDetails(inversePath, byId);
+        }
+    }
 
     private static List<Segment> findSegmentsContainingPk(List<Segment> segs, double pk) {
         List<Segment> res = new ArrayList<>();
         for (Segment s : segs) {
-            if (s.containsPk(pk)) res.add(s);
+            if (s.containsPK(pk)) {
+                res.add(s);
+            }
         }
         return res;
     }
 
-    // -------------------- Alcanzables en radio (Dijkstra truncado) --------------------
-    private static ReachResult reachableWithinRadius(
-            Map<String, List<Edge>> graph,
+    /**
+     * Construye un único camino:
+     * direct = true  -> PK creciente
+     * direct = false -> PK decreciente
+     */
+    private static List<String> buildSinglePath(String startId, Map<String, Segment> byId, boolean direct) {
+        List<String> path = new ArrayList<>();
+        Set<String> visited = new HashSet<>();
+
+        String currentId = startId;
+
+        while (currentId != null) {
+            if (visited.contains(currentId)) break;
+
+            visited.add(currentId);
+            path.add(currentId);
+
+            Segment current = byId.get(currentId);
+            if (current == null) break;
+
+            List<String> nexts = direct ? current.directNeighbors : current.inverseNeighbors;
+            if (nexts.isEmpty()) break;
+
+            String nextId = null;
+            for (String n : nexts) {
+                if (!visited.contains(n)) {
+                    nextId = n;
+                    break;
+                }
+            }
+
+            if (nextId == null) break;
+            currentId = nextId;
+        }
+
+        return path;
+    }
+
+    /**
+     * Busca dónde cae un objeto a cierta distancia (por ejemplo 1000 m)
+     * siguiendo la ruta calculada.
+     *
+     * direct = true  -> PK creciente
+     * direct = false -> PK decreciente
+     */
+    private static FlagPosition findObjectAtDistance(
+            double startPk,
+            String startSegmentId,
+            List<String> path,
             Map<String, Segment> byId,
-            List<Segment> starts,
-            double pk,
-            double radius
+            boolean direct,
+            double distanceMeters
     ) {
-        ReachResult rr = new ReachResult();
-        PriorityQueue<NodeDist> pq = new PriorityQueue<>(Comparator.comparingDouble(a -> a.dist));
+        if (path == null || path.isEmpty()) return null;
 
-        for (Segment s : starts) {
-            rr.dist.put(s.id, 0.0);
-            rr.parent.put(s.id, null);
-            rr.entrySide.put(s.id, Side.UNKNOWN);
-            pq.add(new NodeDist(s.id, 0.0));
-        }
+        double remaining = distanceMeters;
 
-        while (!pq.isEmpty()) {
-            NodeDist cur = pq.poll();
-            double bestHere = rr.dist.getOrDefault(cur.nodeId, Double.POSITIVE_INFINITY);
-            if (cur.dist != bestHere) continue;
-            if (cur.dist > radius) continue;
+        for (int i = 0; i < path.size(); i++) {
+            String segId = path.get(i);
+            Segment s = byId.get(segId);
+            if (s == null) return null;
 
-            Segment seg = byId.get(cur.nodeId);
-            if (seg == null) continue;
+            double min = s.minPK();
+            double max = s.maxPK();
 
-            for (Edge e : graph.getOrDefault(seg.id, List.of())) {
-
-                double stepCost;
-
-                // Caso especial: estoy en un segmento que contiene el PK y aún dist=0
-                if (cur.dist == 0.0 && seg.containsPk(pk)) {
-                    if (e.fromSide == Side.BEGIN) stepCost = seg.distancePkToBegin(pk);
-                    else if (e.fromSide == Side.END) stepCost = seg.distancePkToEnd(pk);
-                    else stepCost = Math.min(seg.distancePkToBegin(pk), seg.distancePkToEnd(pk));
+            // Primer segmento: empezamos desde el PK introducido
+            if (i == 0 && segId.equals(startSegmentId)) {
+                double available;
+                if (direct) {
+                    available = max - startPk;
+                    if (remaining <= available) {
+                        return new FlagPosition(segId, startPk + remaining);
+                    } else {
+                        remaining -= available;
+                    }
                 } else {
-                    // aproximación simple: “atravesar” el segmento completo
-                    stepCost = seg.length();
+                    available = startPk - min;
+                    if (remaining <= available) {
+                        return new FlagPosition(segId, startPk - remaining);
+                    } else {
+                        remaining -= available;
+                    }
                 }
+            } else {
+                // Segmentos siguientes: se recorren completos hasta donde haga falta
+                double len = s.length();
 
-                double nd = cur.dist + stepCost;
-                if (nd > radius) continue;
-
-                double old = rr.dist.getOrDefault(e.toId, Double.POSITIVE_INFINITY);
-                if (nd < old) {
-                    rr.dist.put(e.toId, nd);
-                    rr.parent.put(e.toId, seg.id);
-                    rr.entrySide.put(e.toId, e.toSide); // guardamos por qué lado entramos al destino
-                    pq.add(new NodeDist(e.toId, nd));
+                if (remaining <= len) {
+                    if (direct) {
+                        // entra por minPK y avanza hacia maxPK
+                        return new FlagPosition(segId, min + remaining);
+                    } else {
+                        // entra por maxPK y retrocede hacia minPK
+                        return new FlagPosition(segId, max - remaining);
+                    }
+                } else {
+                    remaining -= len;
                 }
             }
         }
-        return rr;
+
+        return null;
     }
 
-    // -------------------- Impresión bonita de rutas --------------------
-
-    private static void printRoutes(ReachResult rr, List<Segment> starts) {
-        Set<String> startIds = new HashSet<>();
-        for (Segment s : starts) startIds.add(s.id);
-
-        List<Map.Entry<String, Double>> list = new ArrayList<>(rr.dist.entrySet());
-        list.sort(Comparator.comparingDouble(Map.Entry::getValue));
-
-        // imprime todas excepto los starts (si quieres, puedes limitar)
-        for (Map.Entry<String, Double> e : list) {
-            String node = e.getKey();
-            if (startIds.contains(node)) continue; // no imprimas “ruta trivial”
-
-            String path = buildPathString(rr.parent, node);
-            System.out.println("  " + path + "   (dist=" + String.format("%.1f", e.getValue()) + " m)");
-        }
-    }
-
-    private static String buildPathString(Map<String, String> parent, String goal) {
-        List<String> rev = new ArrayList<>();
-        String x = goal;
-        while (x != null) {
-            rev.add(x);
-            x = parent.get(x);
-        }
-        Collections.reverse(rev);
-        return String.join("=>", rev);
-    }
-
-    // -------------------- Cálculo del PK del FLAG en el borde del radio --------------------
-
-    private static FlagInfo computeFlagAtRadius(ReachResult rr, Map<String, Segment> byId, double radius) {
-        // Elegimos el nodo alcanzable MÁS LEJANO (dist máxima) para colocar el flag ahí.
-        // (Si quieres otro criterio, se cambia fácil.)
-        String bestNode = null;
-        double bestDist = -1.0;
-
-        for (Map.Entry<String, Double> e : rr.dist.entrySet()) {
-            if (e.getValue() > bestDist) {
-                bestDist = e.getValue();
-                bestNode = e.getKey();
-            }
-        }
-
-        if (bestNode == null) return null;
-
-        Segment s = byId.get(bestNode);
-        if (s == null || s.beginAbsPos == null || s.endAbsPos == null) return null;
-
-        double remaining = radius - bestDist; // lo que “queda” dentro del último segmento
-        if (remaining < 0) remaining = 0;
-
-        Side entry = rr.entrySide.getOrDefault(bestNode, Side.UNKNOWN);
-
-        // Si no sabemos el lado de entrada, ponemos el flag en el punto medio (aprox.)
-        if (entry == Side.UNKNOWN) {
-            double pkMid = (s.beginAbsPos + s.endAbsPos) / 2.0;
-            return new FlagInfo(bestNode, pkMid);
-        }
-
-        // Movimiento desde el lado de entrada hacia el otro extremo, en dirección lineal del segmento
-        double len = s.length();
-        if (len <= 0.0) return null;
-
-        // unit vector en “dirección BEGIN->END”
-        double dir = (s.endAbsPos - s.beginAbsPos) / len;
-
-        double pkFlag;
-        if (entry == Side.BEGIN) {
-            pkFlag = s.beginAbsPos + dir * remaining;
-        } else {
-            // entry END: nos movemos hacia BEGIN
-            pkFlag = s.endAbsPos - dir * remaining;
-        }
-
-        // clamp por seguridad dentro del rango [min,max]
-        pkFlag = Math.max(s.minPos(), Math.min(s.maxPos(), pkFlag));
-        return new FlagInfo(bestNode, pkFlag);
-    }
-
-    // -------------------- Tabla “como antes” pero más limpia --------------------
-
-    private static void printReachableTable(Map<String, Double> dist, Map<String, Segment> byId) {
-        List<Map.Entry<String, Double>> list = new ArrayList<>(dist.entrySet());
-        list.sort(Comparator.comparingDouble(Map.Entry::getValue));
-
-        for (Map.Entry<String, Double> e : list) {
-            Segment s = byId.get(e.getKey());
+    private static void printPathDetails(List<String> path, Map<String, Segment> byId) {
+        for (String id : path) {
+            Segment s = byId.get(id);
             if (s == null) continue;
-            System.out.printf("  %-8s dist=%7.1f m  range=[%.1f, %.1f]  len=%.1f%n",
-                    s.id, e.getValue(), s.minPos(), s.maxPos(), s.length());
+
+            System.out.println("  " + s.id
+                    + "  [minPK=" + s.minPK()
+                    + ", maxPK=" + s.maxPK()
+                    + ", len=" + s.length() + "]");
+        }
+    }
+
+    private static class FlagPosition {
+        String segmentId;
+        double pk;
+
+        FlagPosition(String segmentId, double pk) {
+            this.segmentId = segmentId;
+            this.pk = pk;
         }
     }
 }

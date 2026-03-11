@@ -9,9 +9,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-import idk.Segment.Side;
-import idk.Segment.Edge;
-
 public class RailMLSegmentsStaxParser {
 
     public List<Segment> parseSegments(Path xmlPath) throws Exception {
@@ -32,6 +29,9 @@ public class RailMLSegmentsStaxParser {
             boolean inConnections = false;
             boolean inSwitch = false;
 
+            Double currentTrackEndPos = null;
+            Double currentSwitchPos = null;
+
             while (reader.hasNext()) {
                 int ev = reader.next();
 
@@ -48,52 +48,83 @@ public class RailMLSegmentsStaxParser {
                         inTrackEnd = false;
                         inConnections = false;
                         inSwitch = false;
+                        currentTrackEndPos = null;
+                        currentSwitchPos = null;
                         continue;
                     }
 
                     if (current == null) continue;
 
-                    if ("trackTopology".equals(ln)) { inTrackTopology = true; continue; }
+                    if ("trackTopology".equals(ln)) {
+                        inTrackTopology = true;
+                        continue;
+                    }
+
                     if (!inTrackTopology) continue;
 
                     if ("trackBegin".equals(ln)) {
                         inTrackBegin = true;
-                        Double p = readPos(reader);
-                        if (p != null) current.beginAbsPos = p;
+
+                        Double abs = readAbsPos(reader);
+                        if (abs != null) current.beginAbsPos = abs;
+
                         continue;
                     }
 
                     if ("trackEnd".equals(ln)) {
                         inTrackEnd = true;
-                        Double p = readPos(reader);
-                        if (p != null) current.endAbsPos = p;
+
+                        Double abs = readAbsPos(reader);
+                        if (abs != null) current.endAbsPos = abs;
+
+                        Double pos = readPos(reader);
+                        if (pos != null) currentTrackEndPos = pos;
+
                         continue;
                     }
 
-                    if ("connections".equals(ln)) { inConnections = true; continue; }
-                    if (inConnections && "switch".equals(ln)) { inSwitch = true; continue; }
+                    if ("connections".equals(ln)) {
+                        inConnections = true;
+                        continue;
+                    }
+
+                    if (inConnections && "switch".equals(ln)) {
+                        inSwitch = true;
+                        currentSwitchPos = readPos(reader);
+                        continue;
+                    }
 
                     if ("connection".equals(ln)) {
                         String ref = attr(reader, "ref");
-                        if (ref == null) continue;
-
                         String toId = Segment.neighborIdFromRef(ref);
+
                         if (toId == null) continue;
 
-                        Side fromSide = Side.UNKNOWN;
-
-                        if (inTrackBegin) fromSide = Side.BEGIN;
-                        else if (inTrackEnd) fromSide = Side.END;
-
-                        if (inSwitch) {
-                            String orientation = attr(reader, "orientation");
-                            if (!"outgoing".equalsIgnoreCase(orientation)) continue;
-                            fromSide = Side.END; // aproximación razonable para tu railML
+                        // 1) Conexión en trackBegin -> INVERSA
+                        if (inTrackBegin) {
+                            current.addInverseNeighbor(toId);
+                            continue;
                         }
 
-                        Side toSide = Segment.toSideFromRef(ref);
+                        // 2) Conexión en trackEnd -> DIRECTA
+                        if (inTrackEnd) {
+                            current.addDirectNeighbor(toId);
+                            continue;
+                        }
 
-                        current.outEdges.add(new Edge(toId, fromSide, toSide));
+                        // 3) Conexiones de switch
+                        if (inSwitch) {
+                            String orientation = attr(reader, "orientation");
+
+                            // En tu XML:
+                            // - incoming siempre en pos=0  -> lado begin -> INVERSA
+                            // - outgoing siempre en endPos -> lado end   -> DIRECTA
+                            if ("incoming".equalsIgnoreCase(orientation)) {
+                                current.addInverseNeighbor(toId);
+                            } else if ("outgoing".equalsIgnoreCase(orientation)) {
+                                current.addDirectNeighbor(toId);
+                            }
+                        }
                     }
 
                 } else if (ev == XMLStreamConstants.END_ELEMENT) {
@@ -109,21 +140,40 @@ public class RailMLSegmentsStaxParser {
                     if ("trackBegin".equals(ln)) inTrackBegin = false;
                     if ("trackEnd".equals(ln)) inTrackEnd = false;
                     if ("connections".equals(ln)) inConnections = false;
-                    if ("switch".equals(ln)) inSwitch = false;
+
+                    if ("switch".equals(ln)) {
+                        inSwitch = false;
+                        currentSwitchPos = null;
+                    }
                 }
             }
+
             reader.close();
         }
 
         return segments;
     }
 
-    private static Double readPos(XMLStreamReader r) {
+    private static Double readAbsPos(XMLStreamReader r) {
         String v = attr(r, "absPos");
-        if (v == null) v = attr(r, "pos");
         if (v == null) return null;
-        try { return Double.parseDouble(v); }
-        catch (NumberFormatException ex) { return null; }
+
+        try {
+            return Double.parseDouble(v);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private static Double readPos(XMLStreamReader r) {
+        String v = attr(r, "pos");
+        if (v == null) return null;
+
+        try {
+            return Double.parseDouble(v);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private static String attr(XMLStreamReader r, String name) {
