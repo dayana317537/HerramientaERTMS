@@ -29,8 +29,8 @@ public class RailMLSegmentsStaxParser {
             boolean inConnections = false;
             boolean inSwitch = false;
 
-            Double currentTrackEndPos = null;
-            Double currentSwitchPos = null;
+            boolean inTrackElements = false;
+            boolean inSpeedChanges = false;
 
             while (reader.hasNext()) {
                 int ev = reader.next();
@@ -48,8 +48,8 @@ public class RailMLSegmentsStaxParser {
                         inTrackEnd = false;
                         inConnections = false;
                         inSwitch = false;
-                        currentTrackEndPos = null;
-                        currentSwitchPos = null;
+                        inTrackElements = false;
+                        inSpeedChanges = false;
                         continue;
                     }
 
@@ -60,69 +60,75 @@ public class RailMLSegmentsStaxParser {
                         continue;
                     }
 
-                    if (!inTrackTopology) continue;
-
-                    if ("trackBegin".equals(ln)) {
-                        inTrackBegin = true;
-
-                        Double abs = readAbsPos(reader);
-                        if (abs != null) current.beginAbsPos = abs;
-
+                    if ("trackElements".equals(ln)) {
+                        inTrackElements = true;
                         continue;
                     }
 
-                    if ("trackEnd".equals(ln)) {
-                        inTrackEnd = true;
+                    if (inTrackElements && "speedChanges".equals(ln)) {
+                        inSpeedChanges = true;
+                        continue;
+                    }
 
-                        Double abs = readAbsPos(reader);
-                        if (abs != null) current.endAbsPos = abs;
-
+                    if (inSpeedChanges && "speedChange".equals(ln)) {
+                        String dir = attr(reader, "dir");
                         Double pos = readPos(reader);
-                        if (pos != null) currentTrackEndPos = pos;
-
+                        Double vMax = readDoubleAttr(reader, "vMax");
+                        current.addSpeedChange(dir, pos, vMax);
                         continue;
                     }
 
-                    if ("connections".equals(ln)) {
-                        inConnections = true;
-                        continue;
-                    }
+                    if (inTrackTopology) {
+                        if ("trackBegin".equals(ln)) {
+                            inTrackBegin = true;
 
-                    if (inConnections && "switch".equals(ln)) {
-                        inSwitch = true;
-                        currentSwitchPos = readPos(reader);
-                        continue;
-                    }
-
-                    if ("connection".equals(ln)) {
-                        String ref = attr(reader, "ref");
-                        String toId = Segment.neighborIdFromRef(ref);
-
-                        if (toId == null) continue;
-
-                        // 1) Conexión en trackBegin -> INVERSA
-                        if (inTrackBegin) {
-                            current.addInverseNeighbor(toId);
+                            Double abs = readAbsPos(reader);
+                            if (abs != null) current.beginAbsPos = abs;
                             continue;
                         }
 
-                        // 2) Conexión en trackEnd -> DIRECTA
-                        if (inTrackEnd) {
-                            current.addDirectNeighbor(toId);
+                        if ("trackEnd".equals(ln)) {
+                            inTrackEnd = true;
+
+                            Double abs = readAbsPos(reader);
+                            if (abs != null) current.endAbsPos = abs;
                             continue;
                         }
 
-                        // 3) Conexiones de switch
-                        if (inSwitch) {
-                            String orientation = attr(reader, "orientation");
+                        if ("connections".equals(ln)) {
+                            inConnections = true;
+                            continue;
+                        }
 
-                            // En tu XML:
-                            // - incoming siempre en pos=0  -> lado begin -> INVERSA
-                            // - outgoing siempre en endPos -> lado end   -> DIRECTA
-                            if ("incoming".equalsIgnoreCase(orientation)) {
+                        if (inConnections && "switch".equals(ln)) {
+                            inSwitch = true;
+                            continue;
+                        }
+
+                        if ("connection".equals(ln)) {
+                            String ref = attr(reader, "ref");
+                            String toId = Segment.neighborIdFromRef(ref);
+
+                            if (toId == null) continue;
+
+                            if (inTrackBegin) {
                                 current.addInverseNeighbor(toId);
-                            } else if ("outgoing".equalsIgnoreCase(orientation)) {
+                                continue;
+                            }
+
+                            if (inTrackEnd) {
                                 current.addDirectNeighbor(toId);
+                                continue;
+                            }
+
+                            if (inSwitch) {
+                                String orientation = attr(reader, "orientation");
+
+                                if ("incoming".equalsIgnoreCase(orientation)) {
+                                    current.addInverseNeighbor(toId);
+                                } else if ("outgoing".equalsIgnoreCase(orientation)) {
+                                    current.addDirectNeighbor(toId);
+                                }
                             }
                         }
                     }
@@ -131,7 +137,10 @@ public class RailMLSegmentsStaxParser {
                     String ln = reader.getLocalName();
 
                     if ("track".equals(ln)) {
-                        if (current != null) segments.add(current);
+                        if (current != null) {
+                            current.finalizeSpeedProfile();
+                            segments.add(current);
+                        }
                         current = null;
                         continue;
                     }
@@ -140,11 +149,9 @@ public class RailMLSegmentsStaxParser {
                     if ("trackBegin".equals(ln)) inTrackBegin = false;
                     if ("trackEnd".equals(ln)) inTrackEnd = false;
                     if ("connections".equals(ln)) inConnections = false;
-
-                    if ("switch".equals(ln)) {
-                        inSwitch = false;
-                        currentSwitchPos = null;
-                    }
+                    if ("switch".equals(ln)) inSwitch = false;
+                    if ("speedChanges".equals(ln)) inSpeedChanges = false;
+                    if ("trackElements".equals(ln)) inTrackElements = false;
                 }
             }
 
@@ -155,18 +162,15 @@ public class RailMLSegmentsStaxParser {
     }
 
     private static Double readAbsPos(XMLStreamReader r) {
-        String v = attr(r, "absPos");
-        if (v == null) return null;
-
-        try {
-            return Double.parseDouble(v);
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        return readDoubleAttr(r, "absPos");
     }
 
     private static Double readPos(XMLStreamReader r) {
-        String v = attr(r, "pos");
+        return readDoubleAttr(r, "pos");
+    }
+
+    private static Double readDoubleAttr(XMLStreamReader r, String attrName) {
+        String v = attr(r, attrName);
         if (v == null) return null;
 
         try {

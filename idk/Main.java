@@ -53,12 +53,11 @@ public class Main {
             List<String> inversePath = buildSinglePath(s.id, byId, false);
 
             System.out.println("Directa (PK creciente):");
-            System.out.println("  " + String.join("=>", directPath));
+            System.out.println("  " + String.join(" => ", directPath));
 
             System.out.println("Inversa (PK decreciente):");
-            System.out.println("  " + String.join("=>", inversePath));
+            System.out.println("  " + String.join(" => ", inversePath));
 
-            // Cálculo del punto a 1 km
             FlagPosition directFlag = findObjectAtDistance(pk, s.id, directPath, byId, true, 1000.0);
             FlagPosition inverseFlag = findObjectAtDistance(pk, s.id, inversePath, byId, false, 1000.0);
 
@@ -88,6 +87,17 @@ public class Main {
             System.out.println("  length      = " + s.length());
             System.out.println("  directNeighbors  = " + s.directNeighbors);
             System.out.println("  inverseNeighbors = " + s.inverseNeighbors);
+            System.out.println("  vRestr total = " + s.mostRestrictiveSpeed);
+            System.out.println("  vRestr up    = " + s.mostRestrictiveSpeedUp);
+            System.out.println("  vRestr down  = " + s.mostRestrictiveSpeedDown);
+
+            System.out.println();
+            System.out.println("Perfil de velocidad UP:");
+            printSpeedProfile(s.speedProfileUp);
+
+            System.out.println();
+            System.out.println("Perfil de velocidad DOWN:");
+            printSpeedProfile(s.speedProfileDown);
 
             System.out.println();
             System.out.println("Detalle de la ruta directa:");
@@ -109,11 +119,6 @@ public class Main {
         return res;
     }
 
-    /**
-     * Construye un único camino:
-     * direct = true  -> PK creciente
-     * direct = false -> PK decreciente
-     */
     private static List<String> buildSinglePath(String startId, Map<String, Segment> byId, boolean direct) {
         List<String> path = new ArrayList<>();
         Set<String> visited = new HashSet<>();
@@ -147,13 +152,6 @@ public class Main {
         return path;
     }
 
-    /**
-     * Busca dónde cae un objeto a cierta distancia (por ejemplo 1000 m)
-     * siguiendo la ruta calculada.
-     *
-     * direct = true  -> PK creciente
-     * direct = false -> PK decreciente
-     */
     private static FlagPosition findObjectAtDistance(
             double startPk,
             String startSegmentId,
@@ -174,7 +172,6 @@ public class Main {
             double min = s.minPK();
             double max = s.maxPK();
 
-            // Primer segmento: empezamos desde el PK introducido
             if (i == 0 && segId.equals(startSegmentId)) {
                 double available;
                 if (direct) {
@@ -193,15 +190,12 @@ public class Main {
                     }
                 }
             } else {
-                // Segmentos siguientes: se recorren completos hasta donde haga falta
                 double len = s.length();
 
                 if (remaining <= len) {
                     if (direct) {
-                        // entra por minPK y avanza hacia maxPK
                         return new FlagPosition(segId, min + remaining);
                     } else {
-                        // entra por maxPK y retrocede hacia minPK
                         return new FlagPosition(segId, max - remaining);
                     }
                 } else {
@@ -221,7 +215,19 @@ public class Main {
             System.out.println("  " + s.id
                     + "  [minPK=" + s.minPK()
                     + ", maxPK=" + s.maxPK()
-                    + ", len=" + s.length() + "]");
+                    + ", len=" + s.length()
+                    + ", vRestr=" + s.mostRestrictiveSpeed + "]");
+        }
+    }
+
+    private static void printSpeedProfile(List<Segment.SpeedInterval> profile) {
+        if (profile == null || profile.isEmpty()) {
+            System.out.println("  (sin datos)");
+            return;
+        }
+
+        for (Segment.SpeedInterval interval : profile) {
+            System.out.println("  " + interval);
         }
     }
 
