@@ -18,6 +18,9 @@ public class Main {
     private static final double GRAD_PERMIL = 10.0; // 10 ‰
     private static final int SLOPE_DIR = -1;        // bajada
 
+    // Límite de exploración hacia atrás desde la LTV
+    private static final double MAX_BACKWARD_SEARCH_METERS = 4000.0;
+
     public static void main(String[] args) throws Exception {
         Locale.setDefault(Locale.US);
 
@@ -40,6 +43,8 @@ public class Main {
 
         System.out.print("Introduce velocidad objetivo de la LTV (km/h, ej: 60): ");
         double ltvSpeedKmh = sc.nextDouble();
+        
+        
 
         double aSlope = SLOPE_DIR * G * (GRAD_PERMIL / 1000.0);
         double aEff = A_BRAKE + aSlope;
@@ -57,7 +62,9 @@ public class Main {
             return;
         }
 
-        List<Segment> containing = findSegmentsContainingPk(segs, pkLtv);
+        //List<Segment> containing = findSegmentsContainingPk(segs, pkLtv);
+        List<Segment> containing = filterSegmentsByPkAndSpeed(segs, pkLtv, ltvSpeedKmh);
+        
 
         System.out.println();
 
@@ -65,71 +72,94 @@ public class Main {
             System.out.println("No encontré ningún segmento que contenga el PK " + pkLtv);
             return;
         }
+        
+        System.out.println("Segmentos que cumplen PK y velocidad:");
+        for (int i = 0; i < containing.size(); i++) {
+            Segment s = containing.get(i);
+            System.out.println(" " + (i + 1) + ") " + s.id 
+                + " [min=" + s.minPK() 
+                + ", max=" + s.maxPK() 
+                + ", vRestr=" + s.mostRestrictiveSpeed + "]");
+        }
+
+        System.out.print("Elige el segmento con el que quieres trabajar (1-" + containing.size() + "): ");
+        int choice = sc.nextInt();
+        choice--; // convertimos a índice
+
+        if (choice < 0 || choice >= containing.size()) {
+            System.out.println("Opción inválida.");
+            return;
+        }
+
+        Segment selectedSegment = containing.get(choice);
+        System.out.println("\nTrabajando con el segmento: " + selectedSegment.id);
+        
 
         System.out.println("Segmentos que contienen el PK:");
         for (Segment s : containing) {
             System.out.println("  " + s.id + "  [min=" + s.minPK() + ", max=" + s.maxPK() + "]");
         }
 
-        for (Segment s : containing) {
+        
+        Segment s = selectedSegment;
+       // for (Segment s : containing) {
             System.out.println();
             System.out.println("==================================================");
             System.out.println("SEGMENTO CANDIDATO: " + s.id);
             System.out.println("==================================================");
+            
+            //Prueba para balizas 
+            System.out.println("Balizas del segmento " + s.id + ":");
+            for (BaliseData.Balise b : s.getBalises()) {
+                System.out.println("  " + b + " absPk=" + b.absolutePk(s.minPK()));
+            }
 
-            List<String> directPath = buildSinglePath(s.id, byId, true);   // PK creciente
-            List<String> inversePath = buildSinglePath(s.id, byId, false); // PK decreciente
+            System.out.println("BG del segmento " + s.id + ":");
+            for (BaliseData.BaliseGroup bg : s.getBaliseGroups()) {
+                System.out.println("  " + bg);
+                System.out.println("    firstByNdx PK = " + bg.getFirstPkByNdx(s.minPK()));
+                System.out.println("    lastByNdx  PK = " + bg.getLastPkByNdx(s.minPK()));
+            }
+            //Prueba
+            Double directSpeedAtLtv = getSpeedAtPk(s, pkLtv, true);
+            Double inverseSpeedAtLtv = getSpeedAtPk(s, pkLtv, false);
 
-            System.out.println("Directa (PK creciente):");
-            System.out.println("  " + String.join(" => ", directPath));
+            List<BranchSearchResult> directBranches = new ArrayList<>();
+            List<BranchSearchResult> inverseBranches = new ArrayList<>();
 
-            System.out.println("Inversa (PK decreciente):");
-            System.out.println("  " + String.join(" => ", inversePath));
-
-            BrakingNoticeResult directNotice;
-            BrakingNoticeResult inverseNotice;
-
-            // DIRECTA usa perfil UP en el propio PK
-            Double speedAtLtvDirect = getSpeedAtPk(s, pkLtv, true);
-            if (speedAtLtvDirect != null && speedAtLtvDirect <= ltvSpeedKmh) {
-                directNotice = BrakingNoticeResult.notNeeded(
-                        ltvSpeedKmh,
+            if (directSpeedAtLtv != null && directSpeedAtLtv <= ltvSpeedKmh) {
+                directBranches.add(new BranchSearchResult(
+                        List.of(s.id),
+                        0.0,
+                        null,
+                        false,
                         String.format(
                                 "No hace falta LTV en DIRECTA: en el PK %.2f ya existe velocidad %.2f km/h <= %.2f km/h",
-                                pkLtv, speedAtLtvDirect, ltvSpeedKmh
+                                pkLtv, directSpeedAtLtv, ltvSpeedKmh
                         )
-                );
+                ));
             } else {
-                // Aviso para DIRECTA: se busca hacia PK decreciente
-                directNotice = findBrakingNoticeForDirect(
-                        pkLtv, s.id, inversePath, byId, ltvSpeedKmh, aEff
+                directBranches = findAllNoticeBranches(
+                        pkLtv, s.id, byId, true, ltvSpeedKmh, aEff, MAX_BACKWARD_SEARCH_METERS
                 );
             }
 
-            // INVERSA usa perfil DOWN en el propio PK
-            Double speedAtLtvInverse = getSpeedAtPk(s, pkLtv, false);
-            if (speedAtLtvInverse != null && speedAtLtvInverse <= ltvSpeedKmh) {
-                inverseNotice = BrakingNoticeResult.notNeeded(
-                        ltvSpeedKmh,
+            if (inverseSpeedAtLtv != null && inverseSpeedAtLtv <= ltvSpeedKmh) {
+                inverseBranches.add(new BranchSearchResult(
+                        List.of(s.id),
+                        0.0,
+                        null,
+                        false,
                         String.format(
                                 "No hace falta LTV en INVERSA: en el PK %.2f ya existe velocidad %.2f km/h <= %.2f km/h",
-                                pkLtv, speedAtLtvInverse, ltvSpeedKmh
+                                pkLtv, inverseSpeedAtLtv, ltvSpeedKmh
                         )
-                );
+                ));
             } else {
-                // Aviso para INVERSA: se busca hacia PK creciente
-                inverseNotice = findBrakingNoticeForInverse(
-                        pkLtv, s.id, directPath, byId, ltvSpeedKmh, aEff
+                inverseBranches = findAllNoticeBranches(
+                        pkLtv, s.id, byId, false, ltvSpeedKmh, aEff, MAX_BACKWARD_SEARCH_METERS
                 );
             }
-
-            System.out.println();
-            System.out.println("Aviso LTV en DIRECTA:");
-            printNoticeResult(directNotice);
-
-            System.out.println();
-            System.out.println("Aviso LTV en INVERSA:");
-            printNoticeResult(inverseNotice);
 
             System.out.println();
             System.out.println("Detalle del segmento:");
@@ -151,21 +181,13 @@ public class Main {
             printSpeedProfile(s.speedProfileDown);
 
             System.out.println();
-            System.out.println("Tramos realmente usados para calcular el aviso LTV en DIRECTA:");
-            printUsedIntervals(directNotice);
+            System.out.println("RAMAS EN DIRECTA (tren hacia PK creciente, búsqueda hacia PK decreciente):");
+            printBranchResults("DIRECTA", directBranches, byId);
 
             System.out.println();
-            System.out.println("Tramos realmente usados para calcular el aviso LTV en INVERSA:");
-            printUsedIntervals(inverseNotice);
-
-            System.out.println();
-            System.out.println("Detalle de la ruta directa:");
-            printPathDetails(directPath, byId);
-
-            System.out.println();
-            System.out.println("Detalle de la ruta inversa:");
-            printPathDetails(inversePath, byId);
-        }
+            System.out.println("RAMAS EN INVERSA (tren hacia PK decreciente, búsqueda hacia PK creciente):");
+            printBranchResults("INVERSA", inverseBranches, byId);
+        //}
     }
 
     private static List<Segment> findSegmentsContainingPk(List<Segment> segs, double pk) {
@@ -177,42 +199,10 @@ public class Main {
         }
         return res;
     }
-
-    private static List<String> buildSinglePath(String startId, Map<String, Segment> byId, boolean direct) {
-        List<String> path = new ArrayList<>();
-        Set<String> visited = new HashSet<>();
-
-        String currentId = startId;
-
-        while (currentId != null) {
-            if (visited.contains(currentId)) break;
-
-            visited.add(currentId);
-            path.add(currentId);
-
-            Segment current = byId.get(currentId);
-            if (current == null) break;
-
-            List<String> nexts = direct ? current.directNeighbors : current.inverseNeighbors;
-            if (nexts.isEmpty()) break;
-
-            String nextId = null;
-            for (String n : nexts) {
-                if (!visited.contains(n)) {
-                    nextId = n;
-                    break;
-                }
-            }
-
-            if (nextId == null) break;
-            currentId = nextId;
-        }
-
-        return path;
-    }
-
+    
     private static Double getSpeedAtPk(Segment s, double pk, boolean directMovement) {
-        if (s == null || !s.containsPK(pk)) return null;
+        if (s == null) return null;
+        if (!s.containsPK(pk)) return null;
 
         List<Segment.SpeedInterval> profile = directMovement ? s.speedProfileUp : s.speedProfileDown;
         if (profile == null || profile.isEmpty()) return null;
@@ -220,16 +210,239 @@ public class Main {
         double relPos = pk - s.minPK();
 
         for (Segment.SpeedInterval interval : profile) {
-            boolean inside = relPos >= interval.fromPos && relPos <= interval.toPos;
-            if (inside) return interval.vMax;
+            if (relPos >= interval.fromPos && relPos <= interval.toPos) {
+                return interval.vMax;
+            }
         }
 
         return null;
     }
 
     /**
+     * FASE 1:
+     * Explora ramas hacia atrás desde la LTV.
+     * - sin repetir segmentos dentro de la misma rama
+     * - sin fusionar todavía ramas confluyentes
+     * - parando cuando ya se encuentra aviso exacto
+     * - o cuando se llega al límite de distancia
+     */
+    private static List<BranchSearchResult> findAllNoticeBranches(
+            double pkLtv,
+            String startSegmentId,
+            Map<String, Segment> byId,
+            boolean directMovement,
+            double targetSpeedKmh,
+            double aEff,
+            double maxBackwardDistance
+    ) {
+        List<BranchSearchResult> results = new ArrayList<>();
+
+        Segment start = byId.get(startSegmentId);
+        if (start == null) return results;
+
+        List<String> initialPath = new ArrayList<>();
+        initialPath.add(startSegmentId);
+
+        Set<String> visited = new HashSet<>();
+        visited.add(startSegmentId);
+
+        double initialDistance = initialBackwardDistance(start, pkLtv, directMovement);
+
+        dfsNoticeBranches(
+                pkLtv,
+                startSegmentId,
+                byId,
+                directMovement,
+                targetSpeedKmh,
+                aEff,
+                maxBackwardDistance,
+                initialPath,
+                visited,
+                initialDistance,
+                results
+        );
+
+        return results;
+    }
+
+    private static void dfsNoticeBranches(
+            double pkLtv,
+            String startSegmentId,
+            Map<String, Segment> byId,
+            boolean directMovement,
+            double targetSpeedKmh,
+            double aEff,
+            double maxBackwardDistance,
+            List<String> currentPath,
+            Set<String> visited,
+            double currentBackwardDistance,
+            List<BranchSearchResult> results
+    ) {
+        BrakingNoticeResult notice = directMovement
+                ? findBrakingNoticeForDirect(pkLtv, startSegmentId, currentPath, byId, targetSpeedKmh, aEff)
+                : findBrakingNoticeForInverse(pkLtv, startSegmentId, currentPath, byId, targetSpeedKmh, aEff);
+
+        if (notice != null && notice.exactNoticeFound) {
+            results.add(new BranchSearchResult(
+                    new ArrayList<>(currentPath),
+                    currentBackwardDistance,
+                    notice,
+                    true,
+                    "Aviso exacto encontrado"
+            ));
+            return;
+        }
+
+        String currentSegmentId = currentPath.get(currentPath.size() - 1);
+        Segment current = byId.get(currentSegmentId);
+
+        if (current == null) {
+            results.add(new BranchSearchResult(
+                    new ArrayList<>(currentPath),
+                    currentBackwardDistance,
+                    notice,
+                    false,
+                    "Segmento no encontrado en el mapa"
+            ));
+            return;
+        }
+
+        List<String> predecessors = getBackwardNeighbors(current, directMovement);
+
+        boolean expanded = false;
+        boolean blockedByDistance = false;
+        boolean blockedByVisited = false;
+
+        for (String prevId : predecessors) {
+            if (prevId == null) continue;
+
+            if (visited.contains(prevId)) {
+                blockedByVisited = true;
+                continue;
+            }
+
+            Segment prev = byId.get(prevId);
+            if (prev == null) continue;
+
+            double nextDistance = currentBackwardDistance + prev.length();
+            if (nextDistance > maxBackwardDistance) {
+                blockedByDistance = true;
+                continue;
+            }
+
+            expanded = true;
+
+            currentPath.add(prevId);
+            visited.add(prevId);
+
+            dfsNoticeBranches(
+                    pkLtv,
+                    startSegmentId,
+                    byId,
+                    directMovement,
+                    targetSpeedKmh,
+                    aEff,
+                    maxBackwardDistance,
+                    currentPath,
+                    visited,
+                    nextDistance,
+                    results
+            );
+
+            visited.remove(prevId);
+            currentPath.remove(currentPath.size() - 1);
+        }
+
+        if (!expanded) {
+            String reason;
+
+            if (predecessors.isEmpty()) {
+                reason = "Fin de ruta antes de encontrar aviso";
+            } else if (blockedByDistance) {
+                reason = "Se alcanzó el límite de " + maxBackwardDistance + " m sin encontrar aviso";
+            } else if (blockedByVisited) {
+                reason = "La rama se detuvo para evitar repetir segmentos";
+            } else {
+                reason = "No hay predecesores válidos para seguir";
+            }
+
+            results.add(new BranchSearchResult(
+                    new ArrayList<>(currentPath),
+                    currentBackwardDistance,
+                    notice,
+                    false,
+                    reason
+            ));
+        }
+    }
+
+    private static List<String> getBackwardNeighbors(Segment current, boolean directMovement) {
+        if (current == null) return new ArrayList<>();
+
+        // DIRECTA:
+        // tren hacia PK creciente, aviso hacia atrás en PK decreciente
+        // segmentos anteriores = inverseNeighbors
+        if (directMovement) {
+            return current.inverseNeighbors;
+        }
+
+        // INVERSA:
+        // tren hacia PK decreciente, aviso hacia atrás en PK creciente
+        // segmentos anteriores = directNeighbors
+        return current.directNeighbors;
+    }
+
+    private static double initialBackwardDistance(Segment start, double pkLtv, boolean directMovement) {
+        if (start == null) return 0.0;
+
+        if (directMovement) {
+            // DIRECTA: buscamos el aviso geométricamente hacia PK decreciente
+            return Math.max(0.0, pkLtv - start.minPK());
+        } else {
+            // INVERSA: buscamos el aviso geométricamente hacia PK creciente
+            return Math.max(0.0, start.maxPK() - pkLtv);
+        }
+    }
+
+    private static void printBranchResults(String title, List<BranchSearchResult> branches, Map<String, Segment> byId) {
+        if (branches == null || branches.isEmpty()) {
+            System.out.println("  (sin ramas)");
+            return;
+        }
+
+        for (int i = 0; i < branches.size(); i++) {
+            BranchSearchResult branch = branches.get(i);
+
+            System.out.println("  Rama " + title + " " + (i + 1) + ":");
+            System.out.println("    Ruta: " + String.join(" => ", branch.path));
+            System.out.printf("    Distancia hacia atrás explorada: %.2f m%n", branch.backwardDistanceMeters);
+            System.out.println("    Estado: " + branch.reason);
+
+            System.out.println("    Segmentos de la rama:");
+            printPathDetails(branch.path, byId);
+
+            if (branch.notice != null && branch.notice.exactNoticeFound) {
+                System.out.println("    Aviso exacto: SI");
+                System.out.println("    Segmento aviso: " + branch.notice.segmentId);
+                System.out.println("    PK aviso: " + branch.notice.pk);
+                System.out.printf("    Velocidad en aviso: %.2f km/h%n", branch.notice.noticeSpeedKmh);
+                System.out.printf("    Velocidad objetivo LTV: %.2f km/h%n", branch.notice.targetSpeedKmh);
+                System.out.printf("    Distancia total de frenado: %.2f m%n", branch.notice.totalDistanceMeters);
+
+                System.out.println("    Tramos realmente usados entre la LTV y el aviso:");
+                printUsedIntervals(branch.notice);
+            } else {
+                System.out.println("    Aviso exacto: NO");
+                System.out.println("    " + branch.reason);
+            }
+
+            System.out.println();
+        }
+    }
+
+    /**
      * DIRECTA = tren circula hacia PK creciente, usando perfil UP.
-     * El aviso está antes de la LTV, o sea hacia PK decreciente.
+     * El aviso está antes de la LTV, es decir, hacia PK decreciente.
      */
     private static BrakingNoticeResult findBrakingNoticeForDirect(
             double pkLtv,
@@ -242,12 +455,13 @@ public class Main {
         List<ApproachInterval> intervals = collectApproachIntervalsForDirect(
                 pkLtv, startSegmentId, backwardGeomPath, byId
         );
+
         return solveBrakingNotice(intervals, targetSpeedKmh, aEff, true);
     }
 
     /**
      * INVERSA = tren circula hacia PK decreciente, usando perfil DOWN.
-     * El aviso está antes de la LTV, o sea hacia PK creciente.
+     * El aviso está antes de la LTV, es decir, hacia PK creciente.
      */
     private static BrakingNoticeResult findBrakingNoticeForInverse(
             double pkLtv,
@@ -260,18 +474,15 @@ public class Main {
         List<ApproachInterval> intervals = collectApproachIntervalsForInverse(
                 pkLtv, startSegmentId, backwardGeomPath, byId
         );
+
         return solveBrakingNotice(intervals, targetSpeedKmh, aEff, false);
     }
 
     /**
-     * Criterio correcto:
-     * - para cada tramo hacia atrás:
-     *   vInicial = velocidad del tramo
-     *   vFinal   = velocidad LTV
-     * - se compara la distancia necesaria con la distancia acumulada desde
-     *   el INICIO de ese tramo hasta la LTV
-     * - el aviso cae en el primer tramo donde eso ya cabe
+     * Resuelve el punto de aviso recorriendo intervalos desde la LTV hacia atrás.
+     * Aquí "intervalo" = intervalo de velocidad, no segmento completo.
      */
+
     private static BrakingNoticeResult solveBrakingNotice(
             List<ApproachInterval> intervals,
             double targetSpeedKmh,
@@ -279,9 +490,14 @@ public class Main {
             boolean directMovement
     ) {
         if (intervals == null || intervals.isEmpty()) {
-            return BrakingNoticeResult.noSolution(
+            return new BrakingNoticeResult(
+                    null,
+                    Double.NaN,
+                    Double.NaN,
                     targetSpeedKmh,
-                    "No hay intervalos de velocidad disponibles para evaluar"
+                    0.0,
+                    new ArrayList<>(),
+                    false
             );
         }
 
@@ -289,34 +505,30 @@ public class Main {
         List<UsedInterval> usedIntervals = new ArrayList<>();
 
         for (ApproachInterval interval : intervals) {
-            double vLimit = interval.speedKmh;
-            double intervalLen = interval.lengthMeters();
 
-            double accumulatedAfterThisInterval = accumulatedDistance + intervalLen;
-            double dNeed = brakingDistanceMeters(vLimit, targetSpeedKmh, aEff);
+            double v = interval.speedKmh;
+            double len = interval.lengthMeters();
 
-            if (vLimit > targetSpeedKmh + 1e-9 && dNeed <= accumulatedAfterThisInterval + 1e-9) {
-                double offsetInsideInterval = dNeed - accumulatedDistance;
+            double dNeed = brakingDistanceMeters(v, targetSpeedKmh, aEff);
+            double totalAvailable = accumulatedDistance + len;
 
-                if (offsetInsideInterval < 0.0) {
-                    offsetInsideInterval = 0.0;
-                }
-                if (offsetInsideInterval > intervalLen) {
-                    offsetInsideInterval = intervalLen;
-                }
+            if (v > targetSpeedKmh && dNeed <= totalAvailable) {
+
+                double distInside = dNeed - accumulatedDistance;
+
+                if (distInside < 0) distInside = 0;
+                if (distInside > len) distInside = len;
 
                 double noticePk;
                 double usedFrom;
                 double usedTo;
 
                 if (directMovement) {
-                    // En DIRECTA el lado cercano a la LTV es PK mayor
-                    noticePk = interval.pkTargetSide - offsetInsideInterval;
+                    noticePk = interval.pkTargetSide - distInside;
                     usedFrom = noticePk;
                     usedTo = interval.pkTargetSide;
                 } else {
-                    // En INVERSA el lado cercano a la LTV es PK menor
-                    noticePk = interval.pkTargetSide + offsetInsideInterval;
+                    noticePk = interval.pkTargetSide + distInside;
                     usedFrom = interval.pkTargetSide;
                     usedTo = noticePk;
                 }
@@ -325,37 +537,53 @@ public class Main {
                         interval.segmentId,
                         usedFrom,
                         usedTo,
-                        interval.speedKmh
+                        v
                 ));
 
-                return BrakingNoticeResult.exact(
+                return new BrakingNoticeResult(
                         interval.segmentId,
                         noticePk,
-                        vLimit,
+                        v,
                         targetSpeedKmh,
                         dNeed,
-                        usedIntervals
+                        new ArrayList<>(usedIntervals),
+                        true
                 );
             }
 
-            accumulatedDistance = accumulatedAfterThisInterval;
+            accumulatedDistance += len;
+
+            double fullFrom;
+            double fullTo;
+
+            if (directMovement) {
+                fullFrom = interval.pkAwaySide;
+                fullTo = interval.pkTargetSide;
+            } else {
+                fullFrom = interval.pkTargetSide;
+                fullTo = interval.pkAwaySide;
+            }
 
             usedIntervals.add(new UsedInterval(
                     interval.segmentId,
-                    interval.pkFrom,
-                    interval.pkTo,
-                    interval.speedKmh
+                    fullFrom,
+                    fullTo,
+                    v
             ));
         }
 
-        return BrakingNoticeResult.noSolution(
+        return new BrakingNoticeResult(
+                null,
+                Double.NaN,
+                Double.NaN,
                 targetSpeedKmh,
-                "No se encontró un punto exacto de aviso dentro de la ruta disponible",
-                usedIntervals,
-                accumulatedDistance
+                accumulatedDistance,
+                new ArrayList<>(usedIntervals),
+                false
         );
     }
-
+    
+    
     /**
      * DIRECTA:
      * - movimiento real: PK creciente
@@ -380,6 +608,7 @@ public class Main {
             if (profile == null || profile.isEmpty()) continue;
 
             if (i == 0 && segId.equals(startSegmentId)) {
+                // Solo la parte desde minPK hasta pkLtv
                 double limitPk = pkLtv;
 
                 for (int j = profile.size() - 1; j >= 0; j--) {
@@ -393,16 +622,18 @@ public class Main {
 
                     if (overlapTo <= overlapFrom) continue;
 
+                    // Cerca de LTV = PK mayor
                     out.add(new ApproachInterval(
                             segId,
                             overlapFrom,
                             overlapTo,
-                            overlapTo,   // lado cercano a la LTV
-                            overlapFrom, // lado lejano
+                            overlapTo,
+                            overlapFrom,
                             si.vMax
                     ));
                 }
             } else {
+                // Segmento completo hacia atrás desde PK mayor a PK menor
                 for (int j = profile.size() - 1; j >= 0; j--) {
                     Segment.SpeedInterval si = profile.get(j);
 
@@ -452,6 +683,7 @@ public class Main {
             if (profile == null || profile.isEmpty()) continue;
 
             if (i == 0 && segId.equals(startSegmentId)) {
+                // Solo la parte desde pkLtv hasta maxPK
                 double startPk = pkLtv;
 
                 for (int j = 0; j < profile.size(); j++) {
@@ -465,16 +697,18 @@ public class Main {
 
                     if (overlapTo <= overlapFrom) continue;
 
+                    // Cerca de LTV = PK menor
                     out.add(new ApproachInterval(
                             segId,
                             overlapFrom,
                             overlapTo,
-                            overlapFrom, // lado cercano a la LTV
-                            overlapTo,   // lado lejano
+                            overlapFrom,
+                            overlapTo,
                             si.vMax
                     ));
                 }
             } else {
+                // Segmento completo hacia atrás desde PK menor a PK mayor
                 for (int j = 0; j < profile.size(); j++) {
                     Segment.SpeedInterval si = profile.get(j);
 
@@ -510,12 +744,16 @@ public class Main {
         return kmh / 3.6;
     }
 
+    private static double msToKmh(double ms) {
+        return ms * 3.6;
+    }
+
     private static void printPathDetails(List<String> path, Map<String, Segment> byId) {
         for (String id : path) {
             Segment s = byId.get(id);
             if (s == null) continue;
 
-            System.out.println("  " + s.id
+            System.out.println("      " + s.id
                     + "  [minPK=" + s.minPK()
                     + ", maxPK=" + s.maxPK()
                     + ", len=" + s.length()
@@ -536,22 +774,17 @@ public class Main {
 
     private static void printUsedIntervals(BrakingNoticeResult result) {
         if (result == null) {
-            System.out.println("  (sin resultado)");
-            return;
-        }
-
-        if (result.ltvNotNeeded) {
-            System.out.println("  " + result.statusMessage);
+            System.out.println("      (sin resultado)");
             return;
         }
 
         if (!result.exactNoticeFound) {
-            System.out.println("  No se encontró un punto exacto de aviso dentro de la ruta disponible.");
+            System.out.println("      No se encontró un punto exacto de aviso dentro de la ruta disponible.");
             return;
         }
 
         if (result.usedIntervals == null || result.usedIntervals.isEmpty()) {
-            System.out.println("  (sin intervalos usados)");
+            System.out.println("      (sin intervalos usados)");
             return;
         }
 
@@ -562,44 +795,34 @@ public class Main {
 
             if (!ui.segmentId.equals(currentSegment)) {
                 currentSegment = ui.segmentId;
-                System.out.println("  Segmento " + currentSegment);
+                System.out.println("      Segmento " + currentSegment);
             }
 
             System.out.println(String.format(
-                    "    [desde PK %.2f hasta PK %.2f : %.2f km/h] len=%.2f m",
+                    "        [desde PK %.2f hasta PK %.2f : %.2f km/h] len=%.2f m",
                     ui.pkTo, ui.pkFrom, ui.speedKmh, ui.lengthMeters()
             ));
         }
     }
 
-    private static void printNoticeResult(BrakingNoticeResult result) {
-        if (result == null) {
-            System.out.println("  (sin resultado)");
-            return;
+    private static class BranchSearchResult {
+        List<String> path;
+        double backwardDistanceMeters;
+        BrakingNoticeResult notice;
+        boolean exactNoticeFound;
+        String reason;
+
+        BranchSearchResult(List<String> path,
+                           double backwardDistanceMeters,
+                           BrakingNoticeResult notice,
+                           boolean exactNoticeFound,
+                           String reason) {
+            this.path = path;
+            this.backwardDistanceMeters = backwardDistanceMeters;
+            this.notice = notice;
+            this.exactNoticeFound = exactNoticeFound;
+            this.reason = reason;
         }
-
-        if (result.ltvNotNeeded) {
-            System.out.println("  Estado: NO HACE FALTA LTV");
-            System.out.println("  " + result.statusMessage);
-            return;
-        }
-
-        if (!result.exactNoticeFound) {
-            System.out.println("  Estado: NO SE PUDO DETERMINAR");
-            System.out.println("  " + result.statusMessage);
-            return;
-        }
-
-        System.out.println("  Estado: AVISO EXACTO");
-        System.out.println("  Segmento: " + result.segmentId);
-        System.out.println("  PK: " + result.pk);
-        System.out.printf("  Velocidad en aviso: %.2f km/h%n", result.noticeSpeedKmh);
-        System.out.printf("  Velocidad objetivo LTV: %.2f km/h%n", result.targetSpeedKmh);
-        System.out.printf("  Distancia total de frenado: %.2f m%n", result.totalDistanceMeters);
-    }
-
-    private static double kmhToMs(double kmh, boolean unused) {
-        return kmh / 3.6;
     }
 
     private static class ApproachInterval {
@@ -651,65 +874,34 @@ public class Main {
         double totalDistanceMeters;
         List<UsedInterval> usedIntervals;
         boolean exactNoticeFound;
-        boolean ltvNotNeeded;
-        String statusMessage;
 
-        static BrakingNoticeResult exact(
-                String segmentId,
-                double pk,
-                double noticeSpeedKmh,
-                double targetSpeedKmh,
-                double totalDistanceMeters,
-                List<UsedInterval> usedIntervals
-        ) {
-            BrakingNoticeResult r = new BrakingNoticeResult();
-            r.segmentId = segmentId;
-            r.pk = pk;
-            r.noticeSpeedKmh = noticeSpeedKmh;
-            r.targetSpeedKmh = targetSpeedKmh;
-            r.totalDistanceMeters = totalDistanceMeters;
-            r.usedIntervals = usedIntervals;
-            r.exactNoticeFound = true;
-            r.ltvNotNeeded = false;
-            r.statusMessage = "Aviso exacto encontrado";
-            return r;
+        BrakingNoticeResult(String segmentId, double pk,
+                            double noticeSpeedKmh, double targetSpeedKmh,
+                            double totalDistanceMeters,
+                            List<UsedInterval> usedIntervals,
+                            boolean exactNoticeFound) {
+            this.segmentId = segmentId;
+            this.pk = pk;
+            this.noticeSpeedKmh = noticeSpeedKmh;
+            this.targetSpeedKmh = targetSpeedKmh;
+            this.totalDistanceMeters = totalDistanceMeters;
+            this.usedIntervals = usedIntervals;
+            this.exactNoticeFound = exactNoticeFound;
+        }
+    }
+    
+    private static List<Segment> filterSegmentsByPkAndSpeed(List<Segment> segs, double pk, double speed) {
+        List<Segment> result = new ArrayList<>();
+
+        for (Segment s : segs) {
+            if (s.containsPK(pk)) { // primero: el PK
+                // criterio: mostRestrictiveSpeed >= velocidad TLV
+                if (s.mostRestrictiveSpeed != null && s.mostRestrictiveSpeed >= speed) {
+                    result.add(s);
+                }
+            }
         }
 
-        static BrakingNoticeResult notNeeded(double targetSpeedKmh, String msg) {
-            BrakingNoticeResult r = new BrakingNoticeResult();
-            r.segmentId = null;
-            r.pk = Double.NaN;
-            r.noticeSpeedKmh = Double.NaN;
-            r.targetSpeedKmh = targetSpeedKmh;
-            r.totalDistanceMeters = 0.0;
-            r.usedIntervals = new ArrayList<>();
-            r.exactNoticeFound = false;
-            r.ltvNotNeeded = true;
-            r.statusMessage = msg;
-            return r;
-        }
-
-        static BrakingNoticeResult noSolution(double targetSpeedKmh, String msg) {
-            return noSolution(targetSpeedKmh, msg, new ArrayList<>(), 0.0);
-        }
-
-        static BrakingNoticeResult noSolution(
-                double targetSpeedKmh,
-                String msg,
-                List<UsedInterval> usedIntervals,
-                double totalDistanceMeters
-        ) {
-            BrakingNoticeResult r = new BrakingNoticeResult();
-            r.segmentId = null;
-            r.pk = Double.NaN;
-            r.noticeSpeedKmh = Double.NaN;
-            r.targetSpeedKmh = targetSpeedKmh;
-            r.totalDistanceMeters = totalDistanceMeters;
-            r.usedIntervals = usedIntervals;
-            r.exactNoticeFound = false;
-            r.ltvNotNeeded = false;
-            r.statusMessage = msg;
-            return r;
-        }
+        return result;
     }
 }

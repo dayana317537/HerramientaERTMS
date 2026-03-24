@@ -13,6 +13,9 @@ public class Segment {
     public Double beginAbsPos = null;
     public Double endAbsPos = null;
 
+    
+    //Balise
+    public final BaliseData baliseData = new BaliseData();
     // PK creciente
     public final List<String> directNeighbors = new ArrayList<>();
 
@@ -200,4 +203,18 @@ public class Segment {
             return String.format("[%.2f -> %.2f : %.2f km/h]", fromPos, toPos, vMax);
         }
     }
+    
+    public void finalizeBaliseData() {
+        baliseData.resolveGroups(minPK());
+    }
+
+    public List<BaliseData.BaliseGroup> getBaliseGroups() {
+        return baliseData.getAllGroups();
+    }
+
+    public List<BaliseData.Balise> getBalises() {
+        return baliseData.getAllBalises();
+    }
+    
+    
 }

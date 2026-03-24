@@ -12,6 +12,12 @@ import java.util.List;
 public class RailMLSegmentsStaxParser {
 
     public List<Segment> parseSegments(Path xmlPath) throws Exception {
+    	
+    	boolean inOcsElements = false;
+    	boolean inBalises = false;
+    	boolean inBaliseGroup = false;
+
+    	BaliseData.BaliseGroup currentBaliseGroup = null;
         List<Segment> segments = new ArrayList<>();
 
         XMLInputFactory factory = XMLInputFactory.newFactory();
@@ -37,7 +43,7 @@ public class RailMLSegmentsStaxParser {
 
                 if (ev == XMLStreamConstants.START_ELEMENT) {
                     String ln = reader.getLocalName();
-
+                    	
                     if ("track".equals(ln)) {
                         String id = attr(reader, "id");
                         String name = attr(reader, "name");
@@ -113,11 +119,13 @@ public class RailMLSegmentsStaxParser {
 
                             if (inTrackBegin) {
                                 current.addInverseNeighbor(toId);
+                                //current.addDirectNeighbor(toId);
                                 continue;
                             }
 
                             if (inTrackEnd) {
-                                current.addDirectNeighbor(toId);
+                            	//current.addInverseNeighbor(toId);
+                               current.addDirectNeighbor(toId);
                                 continue;
                             }
 
@@ -132,6 +140,46 @@ public class RailMLSegmentsStaxParser {
                             }
                         }
                     }
+                    if ("ocsElements".equals(ln)) {
+                        inOcsElements = true;
+                        continue;
+                    }
+
+                    if (inOcsElements && "balises".equals(ln)) {
+                        inBalises = true;
+                        continue;
+                    }
+
+                    if (inBalises && "balise".equals(ln)) {
+                        String id = attr(reader, "id");
+                        String name = attr(reader, "name");
+                        String dir = attr(reader, "dir");
+                        Integer ndx = readIntAttr(reader, "ndx");
+                        Double pos = readPos(reader);
+
+                        current.baliseData.addBalise(
+                                new BaliseData.Balise(id, name, dir, ndx, pos)
+                        );
+                        continue;
+                    }
+
+                    if (inBalises && "baliseGroup".equals(ln)) {
+                        String id = attr(reader, "id");
+                        String name = attr(reader, "name");
+
+                        currentBaliseGroup = new BaliseData.BaliseGroup(id, name);
+                        current.baliseData.addGroup(currentBaliseGroup);
+                        inBaliseGroup = true;
+                        continue;
+                    }
+
+                    if (inBaliseGroup && "baliseRef".equals(ln)) {
+                        String ref = attr(reader, "ref");
+                        if (currentBaliseGroup != null) {
+                            currentBaliseGroup.addBaliseRef(ref);
+                        }
+                        continue;
+                    }
 
                 } else if (ev == XMLStreamConstants.END_ELEMENT) {
                     String ln = reader.getLocalName();
@@ -139,6 +187,7 @@ public class RailMLSegmentsStaxParser {
                     if ("track".equals(ln)) {
                         if (current != null) {
                             current.finalizeSpeedProfile();
+                            current.finalizeBaliseData();
                             segments.add(current);
                         }
                         current = null;
@@ -152,6 +201,14 @@ public class RailMLSegmentsStaxParser {
                     if ("switch".equals(ln)) inSwitch = false;
                     if ("speedChanges".equals(ln)) inSpeedChanges = false;
                     if ("trackElements".equals(ln)) inTrackElements = false;
+                    
+                    if ("baliseGroup".equals(ln)) {
+                        inBaliseGroup = false;
+                        currentBaliseGroup = null;
+                    }
+
+                    if ("balises".equals(ln)) inBalises = false;
+                    if ("ocsElements".equals(ln)) inOcsElements = false;
                 }
             }
 
@@ -183,5 +240,16 @@ public class RailMLSegmentsStaxParser {
     private static String attr(XMLStreamReader r, String name) {
         String v = r.getAttributeValue(null, name);
         return (v == null || v.isBlank()) ? null : v;
+    }
+    
+    private static Integer readIntAttr (XMLStreamReader r , String attrName) {
+    	String v = attr(r , attrName);
+    	if (v == null ) return null;
+    	try {
+    		return Integer.parseInt(v);
+    	}catch(NumberFormatException ex) {
+    		return null; 
+    	}
+     
     }
 }
