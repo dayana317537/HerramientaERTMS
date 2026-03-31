@@ -17,12 +17,13 @@ public class Main {
     private static final double A_BRAKE = 0.4;      // m/s^2
     private static final double GRAD_PERMIL = 10.0; // 10 ‰
     private static final int SLOPE_DIR = -1;        // bajada
-
+    
     
     //Balizas
     private static final double MIN_BG_GAP_METERS = 15.0;
     private static final double BG_SEARCH_WINDOW_METERS = 20.0;
-    
+    private static final boolean  DEBUG_BG = true;        
+   
     
     // Límite de exploración hacia atrás desde la LTV
     private static final double MAX_BACKWARD_SEARCH_METERS = 4000.0;
@@ -30,7 +31,7 @@ public class Main {
     public static void main(String[] args) throws Exception {
         Locale.setDefault(Locale.US);
 
-        Path xml = Path.of("C:/Users/49204/Desktop/Herramienta/VIA_ATO_TOLUCA_DISERTMSPruebaLTVs.xml");
+        Path xml = Path.of("C:/Users/49204/Desktop/Herramienta/VIA_ATO_TOLUCA_DISERTMS (99).xml");
 
         RailMLSegmentsStaxParser parser = new RailMLSegmentsStaxParser();
         List<Segment> segs = parser.parseSegments(xml);
@@ -47,7 +48,17 @@ public class Main {
         for (Segment s : segs) {
             s.finalizeBaliseData(byId);
         }
-
+        System.out.println("=== DEBUG BALIZAS RESUELTAS ===");
+        for (Segment seg : segs) {
+            if (!seg.getBaliseGroups().isEmpty()) {
+                System.out.println("Segmento " + seg.id);
+                for (BaliseData.BaliseGroup bg : seg.getBaliseGroups()) {
+                    System.out.println("  BG " + bg.id
+                            + " first=" + bg.getFirstPkByNdx(byId)
+                            + " last=" + bg.getLastPkByNdx(byId));
+                }
+            }
+        }
         System.out.println("Segmentos leídos: " + segs.size());
 
         Scanner sc = new Scanner(System.in);
@@ -457,6 +468,7 @@ public class Main {
 
                 finalNotice = adjustNoticeAgainstBalises(
                         finalNotice,
+                        branch.path,
                         byId,
                         directMovement,
                         MIN_BG_GAP_METERS,
@@ -482,7 +494,7 @@ public class Main {
             System.out.println();
         }
     }
-
+    
     /**
      * DIRECTA = tren circula hacia PK creciente, usando perfil UP.
      * El aviso está antes de la LTV, es decir, hacia PK decreciente.
@@ -555,6 +567,36 @@ public class Main {
             double dNeed = brakingDistanceMeters(v, targetSpeedKmh, aEff);
             double totalAvailable = accumulatedDistance + len;
 
+            if (v == targetSpeedKmh) {
+                double noticePk;
+                double usedFrom;
+                double usedTo;
+                if (directMovement) {
+                    noticePk = interval.pkAwaySide;
+                    usedFrom = interval.pkAwaySide;
+                    usedTo   = interval.pkTargetSide;
+                } else {
+                    noticePk = interval.pkAwaySide;
+                    usedFrom = interval.pkTargetSide;
+                    usedTo   = interval.pkAwaySide;
+                }
+                usedIntervals.add(new UsedInterval(
+                        interval.segmentId,
+                        usedFrom,
+                        usedTo,
+                        v
+                ));
+                return new BrakingNoticeResult(
+                        interval.segmentId,
+                        noticePk,
+                        v,
+                        targetSpeedKmh,
+                        dNeed,
+                        new ArrayList<>(usedIntervals),
+                        true
+                );
+            }
+            
             if (v > targetSpeedKmh && dNeed <= totalAvailable) {
 
                 double distInside = dNeed - accumulatedDistance;
@@ -890,6 +932,17 @@ public class Main {
             return Math.abs(pkTo - pkFrom);
         }
     }
+//    private static class BaliseReference {
+//        String groupId;
+//        String segmentId;
+//        double pk;
+//
+//        BaliseReference(String groupId, String segmentId, double pk) {
+//            this.groupId = groupId;
+//            this.segmentId = segmentId;
+//            this.pk = pk;
+//        }
+//    }
 
     private static class UsedInterval {
         String segmentId;
@@ -961,8 +1014,42 @@ public class Main {
         }
     }
     
+    private static Segment findSegmentContainingPkInNeighbors(
+            Map<String, Segment> byId,
+            List<String> branchPath,
+            double pk,
+            boolean directMovement
+    ) {
+        if (branchPath == null || branchPath.isEmpty()) return null;
+
+        // El último segmento de la rama es el más alejado de la LTV
+        String lastSegId = branchPath.get(branchPath.size() - 1);
+        Segment lastSeg = byId.get(lastSegId);
+        if (lastSeg == null) return null;
+
+        // En INVERSA: dirección away = directNeighbors (PK creciente)
+        // En DIRECTA: dirección away = inverseNeighbors (PK decreciente)
+        List<String> neighbors = directMovement
+                ? lastSeg.inverseNeighbors
+                : lastSeg.directNeighbors;
+
+        for (String neighborId : neighbors) {
+            if (neighborId == null) continue;
+            Segment neighbor = byId.get(neighborId);
+            if (neighbor != null && neighbor.containsPK(pk)) {
+                if (DEBUG_BG) {
+                    System.out.println("    [BG] Aviso extendido al segmento vecino: " + neighborId);
+                }
+                return neighbor;
+            }
+        }
+
+        return null;
+    }
+    
     private static BrakingNoticeResult adjustNoticeAgainstBalises(
             BrakingNoticeResult rawNotice,
+            List<String> branchPath,
             Map<String, Segment> byId,
             boolean directMovement,
             double minGapMeters,
@@ -973,12 +1060,47 @@ public class Main {
         double adjustedPk = rawNotice.pk;
         String adjustedSegmentId = rawNotice.segmentId;
 
+        if (DEBUG_BG) {
+            System.out.println("    [BG] Aviso teórico inicial:");
+            System.out.println("         segmento=" + rawNotice.segmentId + " pk=" + rawNotice.pk);
+            System.out.println("         sentido=" + (directMovement ? "DIRECTA" : "INVERSA"));
+        }
+
         for (int guard = 0; guard < 50; guard++) {
-            BaliseReference conflict = findNearestConflictingBaliseNearNotice(
-                    adjustedPk, byId, directMovement, minGapMeters, searchWindowMeters
+            if (DEBUG_BG) {
+                System.out.printf("    [BG] Iteración %d, ventana [%.2f, %.2f]%n",
+                        guard + 1,
+                        adjustedPk - searchWindowMeters,
+                        adjustedPk + searchWindowMeters);
+            }
+
+            List<BaliseReference> nearby = findNearbyBalises(
+                    adjustedPk, branchPath, byId, directMovement, searchWindowMeters
+            );
+
+            if (DEBUG_BG) {
+                if (nearby.isEmpty()) {
+                    System.out.println("    [BG] No hay BG cercanos.");
+                } else {
+                    System.out.println("    [BG] BG cercanos:");
+                    for (BaliseReference ref : nearby) {
+                        double delta = directMovement ? (adjustedPk - ref.pk) : (ref.pk - adjustedPk);
+                        System.out.printf("         BG=%s seg=%s pk=%.2f delta=%.2f%n",
+                                ref.groupId, ref.segmentId, ref.pk, delta);
+                    }
+                }
+            }
+
+            BaliseReference conflict = findNearestConflictingBalise(
+                    adjustedPk,branchPath, byId, directMovement, minGapMeters, searchWindowMeters
             );
 
             if (conflict == null) {
+                if (DEBUG_BG) {
+                    System.out.println("    [BG] No hay conflicto. Aviso válido.");
+                    System.out.println("    [BG] Aviso final: segmento=" + adjustedSegmentId + " pk=" + adjustedPk);
+                }
+
                 return new BrakingNoticeResult(
                         adjustedSegmentId,
                         adjustedPk,
@@ -990,16 +1112,35 @@ public class Main {
                 );
             }
 
+            double delta = directMovement ? (adjustedPk - conflict.pk) : (conflict.pk - adjustedPk);
+
+            if (DEBUG_BG) {
+                System.out.printf("    [BG] CONFLICTO con BG=%s seg=%s pk=%.2f delta=%.2f < %.2f%n",
+                        conflict.groupId, conflict.segmentId, conflict.pk, delta, minGapMeters);
+            }
+
             if (directMovement) {
-                // DIRECTA: mover alejándose de la LTV hacia PK menor
                 adjustedPk = conflict.pk - minGapMeters;
             } else {
-                // INVERSA: mover alejándose de la LTV hacia PK mayor
                 adjustedPk = conflict.pk + minGapMeters;
             }
 
-            Segment newSeg = findSegmentContainingPk(byId, adjustedPk);
+            Segment newSeg = findSegmentContainingPkInBranch(byId, branchPath, adjustedPk);
+
             if (newSeg == null) {
+                // Intentar en vecinos del último segmento de la rama en dirección away
+                newSeg = findSegmentContainingPkInNeighbors(byId, branchPath, adjustedPk, directMovement);
+            }
+            
+            if (DEBUG_BG) {
+                System.out.printf("    [BG] Aviso desplazado a pk=%.2f%n", adjustedPk);
+            }
+
+            if (newSeg == null) {
+                if (DEBUG_BG) {
+                    System.out.println("    [BG] ERROR: el aviso ajustado no cae en ningún segmento.");
+                }
+
                 return new BrakingNoticeResult(
                         rawNotice.segmentId,
                         rawNotice.pk,
@@ -1012,25 +1153,38 @@ public class Main {
             }
 
             adjustedSegmentId = newSeg.id;
+
+            if (DEBUG_BG) {
+                System.out.println("    [BG] Nuevo segmento del aviso: " + adjustedSegmentId);
+            }
+        }
+
+        if (DEBUG_BG) {
+            System.out.println("    [BG] Se alcanzó el máximo de iteraciones de ajuste.");
         }
 
         return rawNotice;
     }
+    
 
-    private static BaliseReference findNearestConflictingBaliseNearNotice(
+    private static List<BaliseReference> findNearbyBalises(
             double noticePk,
+            List<String> branchPath,
             Map<String, Segment> byId,
             boolean directMovement,
-            double minGapMeters,
             double searchWindowMeters
     ) {
-        BaliseReference best = null;
-        double bestDelta = Double.POSITIVE_INFINITY;
+    	List<BaliseReference> refs = new ArrayList<>();
 
         double windowMin = noticePk - searchWindowMeters;
         double windowMax = noticePk + searchWindowMeters;
 
-        for (Segment s : byId.values()) {
+        if (branchPath == null || branchPath.isEmpty()) return refs;
+
+        for (String segId : branchPath) {
+            Segment s = byId.get(segId);
+            if (s == null) continue;
+
             if (s.maxPK() < windowMin || s.minPK() > windowMax) continue;
 
             for (BaliseData.BaliseGroup bg : s.getBaliseGroups()) {
@@ -1041,22 +1195,58 @@ public class Main {
                 if (refPk == null) continue;
                 if (refPk < windowMin || refPk > windowMax) continue;
 
-                double delta = directMovement ? (noticePk - refPk) : (refPk - noticePk);
-
-                if (delta >= 0.0 && delta < minGapMeters && delta < bestDelta) {
-                    bestDelta = delta;
-                    best = new BaliseReference(bg.id, s.id, refPk);
-                }
+                refs.add(new BaliseReference(bg.id, s.id, refPk));
             }
         }
 
-        return best;
+        return refs;
     }
 
-    private static Segment findSegmentContainingPk(Map<String, Segment> byId, double pk) {
-        for (Segment s : byId.values()) {
-            if (s.containsPK(pk)) return s;
-        }
-        return null;
+
+private static Segment findSegmentContainingPk(Map<String, Segment> byId, double pk) {
+    for (Segment s : byId.values()) {
+        if (s.containsPK(pk)) return s;
     }
+    return null;
+}
+
+private static BaliseReference findNearestConflictingBalise(
+        double noticePk,
+        List <String> branchPath,
+        Map<String, Segment> byId,
+        boolean directMovement,
+        double minGapMeters,
+        double searchWindowMeters
+) {
+    BaliseReference best = null;
+    double bestAbsDelta = Double.POSITIVE_INFINITY;
+
+    List<BaliseReference> nearby = findNearbyBalises(
+            noticePk,branchPath, byId, directMovement, searchWindowMeters
+    );
+
+    for (BaliseReference ref : nearby) {
+    	double absDelta = Math.abs(noticePk - ref.pk);
+
+        if (absDelta < minGapMeters && absDelta < bestAbsDelta) {
+            bestAbsDelta = absDelta;
+            best = ref;
+        }
+    }
+
+    return best;
+}
+
+
+private static Segment findSegmentContainingPkInBranch(
+        Map<String, Segment> byId,
+        List<String> branchPath,
+        double pk
+) {
+    for (String segId : branchPath) {
+        Segment s = byId.get(segId);
+        if (s != null && s.containsPK(pk)) return s;
+    }
+    return null;
+}
 }
