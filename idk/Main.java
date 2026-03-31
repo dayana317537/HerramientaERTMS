@@ -18,6 +18,12 @@ public class Main {
     private static final double GRAD_PERMIL = 10.0; // 10 ‰
     private static final int SLOPE_DIR = -1;        // bajada
 
+    
+    //Balizas
+    private static final double MIN_BG_GAP_METERS = 15.0;
+    private static final double BG_SEARCH_WINDOW_METERS = 20.0;
+    
+    
     // Límite de exploración hacia atrás desde la LTV
     private static final double MAX_BACKWARD_SEARCH_METERS = 4000.0;
 
@@ -29,9 +35,17 @@ public class Main {
         RailMLSegmentsStaxParser parser = new RailMLSegmentsStaxParser();
         List<Segment> segs = parser.parseSegments(xml);
 
+//        Map<String, Segment> byId = new HashMap<>();
+//        for (Segment s : segs) {
+//            byId.put(s.id, s);
+//        }
         Map<String, Segment> byId = new HashMap<>();
         for (Segment s : segs) {
             byId.put(s.id, s);
+        }
+
+        for (Segment s : segs) {
+            s.finalizeBaliseData(byId);
         }
 
         System.out.println("Segmentos leídos: " + segs.size());
@@ -111,14 +125,14 @@ public class Main {
             //Prueba para balizas 
             System.out.println("Balizas del segmento " + s.id + ":");
             for (BaliseData.Balise b : s.getBalises()) {
-                System.out.println("  " + b + " absPk=" + b.absolutePk(s.minPK()));
+                System.out.println("  " + b + " absPk=" + b.absolutePk(byId));
             }
 
             System.out.println("BG del segmento " + s.id + ":");
             for (BaliseData.BaliseGroup bg : s.getBaliseGroups()) {
                 System.out.println("  " + bg);
-                System.out.println("    firstByNdx PK = " + bg.getFirstPkByNdx(s.minPK()));
-                System.out.println("    lastByNdx  PK = " + bg.getLastPkByNdx(s.minPK()));
+                System.out.println("    firstByNdx PK = " + bg.getFirstPkByNdx(byId));
+                System.out.println("    lastByNdx  PK = " + bg.getLastPkByNdx(byId));
             }
             //Prueba
             Double directSpeedAtLtv = getSpeedAtPk(s, pkLtv, true);
@@ -421,16 +435,45 @@ public class Main {
             System.out.println("    Segmentos de la rama:");
             printPathDetails(branch.path, byId);
 
-            if (branch.notice != null && branch.notice.exactNoticeFound) {
+//            if (branch.notice != null && branch.notice.exactNoticeFound) {
+//                System.out.println("    Aviso exacto: SI");
+//                System.out.println("    Segmento aviso: " + branch.notice.segmentId);
+//                System.out.println("    PK aviso: " + branch.notice.pk);
+//                System.out.printf("    Velocidad en aviso: %.2f km/h%n", branch.notice.noticeSpeedKmh);
+//                System.out.printf("    Velocidad objetivo LTV: %.2f km/h%n", branch.notice.targetSpeedKmh);
+//                System.out.printf("    Distancia total de frenado: %.2f m%n", branch.notice.totalDistanceMeters);
+//
+//                System.out.println("    Tramos realmente usados entre la LTV y el aviso:");
+//                printUsedIntervals(branch.notice);
+//            } else {
+//                System.out.println("    Aviso exacto: NO");
+//                System.out.println("    " + branch.reason);
+//            }
+            
+            BrakingNoticeResult finalNotice = branch.notice;
+
+            if (finalNotice != null && finalNotice.exactNoticeFound) {
+                boolean directMovement = "DIRECTA".equalsIgnoreCase(title);
+
+                finalNotice = adjustNoticeAgainstBalises(
+                        finalNotice,
+                        byId,
+                        directMovement,
+                        MIN_BG_GAP_METERS,
+                        BG_SEARCH_WINDOW_METERS
+                );
+            }
+
+            if (finalNotice != null && finalNotice.exactNoticeFound) {
                 System.out.println("    Aviso exacto: SI");
-                System.out.println("    Segmento aviso: " + branch.notice.segmentId);
-                System.out.println("    PK aviso: " + branch.notice.pk);
-                System.out.printf("    Velocidad en aviso: %.2f km/h%n", branch.notice.noticeSpeedKmh);
-                System.out.printf("    Velocidad objetivo LTV: %.2f km/h%n", branch.notice.targetSpeedKmh);
-                System.out.printf("    Distancia total de frenado: %.2f m%n", branch.notice.totalDistanceMeters);
+                System.out.println("    Segmento aviso: " + finalNotice.segmentId);
+                System.out.println("    PK aviso: " + finalNotice.pk);
+                System.out.printf("    Velocidad en aviso: %.2f km/h%n", finalNotice.noticeSpeedKmh);
+                System.out.printf("    Velocidad objetivo LTV: %.2f km/h%n", finalNotice.targetSpeedKmh);
+                System.out.printf("    Distancia total de frenado: %.2f m%n", finalNotice.totalDistanceMeters);
 
                 System.out.println("    Tramos realmente usados entre la LTV y el aviso:");
-                printUsedIntervals(branch.notice);
+                printUsedIntervals(finalNotice);
             } else {
                 System.out.println("    Aviso exacto: NO");
                 System.out.println("    " + branch.reason);
@@ -903,5 +946,117 @@ public class Main {
         }
 
         return result;
+    }
+    
+    //BALIZAS 
+    private static class BaliseReference {
+        String groupId;
+        String segmentId;
+        double pk;
+
+        BaliseReference(String groupId, String segmentId, double pk) {
+            this.groupId = groupId;
+            this.segmentId = segmentId;
+            this.pk = pk;
+        }
+    }
+    
+    private static BrakingNoticeResult adjustNoticeAgainstBalises(
+            BrakingNoticeResult rawNotice,
+            Map<String, Segment> byId,
+            boolean directMovement,
+            double minGapMeters,
+            double searchWindowMeters
+    ) {
+        if (rawNotice == null || !rawNotice.exactNoticeFound) return rawNotice;
+
+        double adjustedPk = rawNotice.pk;
+        String adjustedSegmentId = rawNotice.segmentId;
+
+        for (int guard = 0; guard < 50; guard++) {
+            BaliseReference conflict = findNearestConflictingBaliseNearNotice(
+                    adjustedPk, byId, directMovement, minGapMeters, searchWindowMeters
+            );
+
+            if (conflict == null) {
+                return new BrakingNoticeResult(
+                        adjustedSegmentId,
+                        adjustedPk,
+                        rawNotice.noticeSpeedKmh,
+                        rawNotice.targetSpeedKmh,
+                        rawNotice.totalDistanceMeters,
+                        rawNotice.usedIntervals,
+                        true
+                );
+            }
+
+            if (directMovement) {
+                // DIRECTA: mover alejándose de la LTV hacia PK menor
+                adjustedPk = conflict.pk - minGapMeters;
+            } else {
+                // INVERSA: mover alejándose de la LTV hacia PK mayor
+                adjustedPk = conflict.pk + minGapMeters;
+            }
+
+            Segment newSeg = findSegmentContainingPk(byId, adjustedPk);
+            if (newSeg == null) {
+                return new BrakingNoticeResult(
+                        rawNotice.segmentId,
+                        rawNotice.pk,
+                        rawNotice.noticeSpeedKmh,
+                        rawNotice.targetSpeedKmh,
+                        rawNotice.totalDistanceMeters,
+                        rawNotice.usedIntervals,
+                        false
+                );
+            }
+
+            adjustedSegmentId = newSeg.id;
+        }
+
+        return rawNotice;
+    }
+
+    private static BaliseReference findNearestConflictingBaliseNearNotice(
+            double noticePk,
+            Map<String, Segment> byId,
+            boolean directMovement,
+            double minGapMeters,
+            double searchWindowMeters
+    ) {
+        BaliseReference best = null;
+        double bestDelta = Double.POSITIVE_INFINITY;
+
+        double windowMin = noticePk - searchWindowMeters;
+        double windowMax = noticePk + searchWindowMeters;
+
+        for (Segment s : byId.values()) {
+            if (s.maxPK() < windowMin || s.minPK() > windowMax) continue;
+
+            for (BaliseData.BaliseGroup bg : s.getBaliseGroups()) {
+                Double refPk = directMovement
+                        ? bg.getLastPkByNdx(byId)
+                        : bg.getFirstPkByNdx(byId);
+
+                if (refPk == null) continue;
+                if (refPk < windowMin || refPk > windowMax) continue;
+
+                double delta = directMovement ? (noticePk - refPk) : (refPk - noticePk);
+
+                if (delta >= 0.0 && delta < minGapMeters && delta < bestDelta) {
+                    bestDelta = delta;
+                    best = new BaliseReference(bg.id, s.id, refPk);
+                }
+            }
+        }
+
+        return best;
+    }
+
+    private static Segment findSegmentContainingPk(Map<String, Segment> byId, double pk) {
+        for (Segment s : byId.values()) {
+            if (s.containsPK(pk)) return s;
+        }
+        return null;
     }
 }

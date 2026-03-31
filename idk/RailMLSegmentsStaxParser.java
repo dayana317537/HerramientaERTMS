@@ -158,7 +158,7 @@ public class RailMLSegmentsStaxParser {
                         Double pos = readPos(reader);
 
                         current.baliseData.addBalise(
-                                new BaliseData.Balise(id, name, dir, ndx, pos)
+                                new BaliseData.Balise(id, name, dir, ndx, pos , current.id)
                         );
                         continue;
                     }
@@ -187,7 +187,7 @@ public class RailMLSegmentsStaxParser {
                     if ("track".equals(ln)) {
                         if (current != null) {
                             current.finalizeSpeedProfile();
-                            current.finalizeBaliseData();
+                           // current.finalizeBaliseData();
                             segments.add(current);
                         }
                         current = null;

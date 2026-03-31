@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 public class Segment {
 
@@ -204,8 +205,12 @@ public class Segment {
         }
     }
     
-    public void finalizeBaliseData() {
-        baliseData.resolveGroups(minPK());
+//    public void finalizeBaliseData() {
+//        baliseData.resolveGroups(minPK());
+//    }
+    
+    public void finalizeBaliseData(Map<String, Segment> byId) {
+        baliseData.resolveGroups(byId);
     }
 
     public List<BaliseData.BaliseGroup> getBaliseGroups() {
