@@ -16,7 +16,8 @@ public class RailMLSegmentsStaxParser {
     	boolean inOcsElements = false;
     	boolean inBalises = false;
     	boolean inBaliseGroup = false;
-
+    	boolean inSignals = false; //Señales
+    	
     	BaliseData.BaliseGroup currentBaliseGroup = null;
         List<Segment> segments = new ArrayList<>();
 
@@ -145,6 +146,24 @@ public class RailMLSegmentsStaxParser {
                         continue;
                     }
 
+                    
+                    //Señales 
+                    if (inOcsElements && "signals".equals(ln)) {
+                        inSignals = true;
+                        continue;
+                    }
+                
+                    if (inSignals && "signal".equals(ln)) {
+                        String id   = attr(reader, "id");
+                        String name = attr(reader, "name");
+                        String dir  = attr(reader, "dir");
+                        Double pos  = readPos(reader);
+                        current.signalData.addSignal(
+                            new SignalData.Signal(id, name, dir, pos, current.id)
+                        );
+                        continue;
+                    }
+                    
                     if (inOcsElements && "balises".equals(ln)) {
                         inBalises = true;
                         continue;
@@ -180,6 +199,8 @@ public class RailMLSegmentsStaxParser {
                         }
                         continue;
                     }
+                    
+                    
 
                 } else if (ev == XMLStreamConstants.END_ELEMENT) {
                     String ln = reader.getLocalName();
@@ -201,7 +222,7 @@ public class RailMLSegmentsStaxParser {
                     if ("switch".equals(ln)) inSwitch = false;
                     if ("speedChanges".equals(ln)) inSpeedChanges = false;
                     if ("trackElements".equals(ln)) inTrackElements = false;
-                    
+                    if ("signals".equals(ln)) inSignals = false; //Señales
                     if ("baliseGroup".equals(ln)) {
                         inBaliseGroup = false;
                         currentBaliseGroup = null;

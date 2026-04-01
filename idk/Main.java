@@ -207,11 +207,11 @@ public class Main {
 
             System.out.println();
             System.out.println("RAMAS EN DIRECTA (tren hacia PK creciente, búsqueda hacia PK decreciente):");
-            printBranchResults("DIRECTA", directBranches, byId);
+            printBranchResults("DIRECTA", directBranches, byId , pkLtv);
 
             System.out.println();
             System.out.println("RAMAS EN INVERSA (tren hacia PK decreciente, búsqueda hacia PK creciente):");
-            printBranchResults("INVERSA", inverseBranches, byId);
+            printBranchResults("INVERSA", inverseBranches, byId , pkLtv);
         //}
     }
 
@@ -429,7 +429,7 @@ public class Main {
         }
     }
 
-    private static void printBranchResults(String title, List<BranchSearchResult> branches, Map<String, Segment> byId) {
+    private static void printBranchResults(String title, List<BranchSearchResult> branches, Map<String, Segment> byId ,double pkLtv ) {
         if (branches == null || branches.isEmpty()) {
             System.out.println("  (sin ramas)");
             return;
@@ -437,6 +437,8 @@ public class Main {
 
         for (int i = 0; i < branches.size(); i++) {
             BranchSearchResult branch = branches.get(i);
+            
+            boolean directMovement = "DIRECTA".equalsIgnoreCase(title); 
 
             System.out.println("  Rama " + title + " " + (i + 1) + ":");
             System.out.println("    Ruta: " + String.join(" => ", branch.path));
@@ -462,9 +464,18 @@ public class Main {
 //            }
             
             BrakingNoticeResult finalNotice = branch.notice;
+            
+            
+			SignalNoticeResolver.SignalNoticeResult signalResult = SignalNoticeResolver.findSignalInPath( branch.path, byId, directMovement, pkLtv);
+
+            if (signalResult.found) {
+            	System.out.println("    Señal en el path: " + signalResult.signalName
+            	 + " en PK=" + signalResult.pk + " (seg=" + signalResult.segmentId + ")");
+            	System.out.println("    → Aviso colocado en señal: PK=" + signalResult.pk);
+            }
 
             if (finalNotice != null && finalNotice.exactNoticeFound) {
-                boolean directMovement = "DIRECTA".equalsIgnoreCase(title);
+               // boolean directMovement = "DIRECTA".equalsIgnoreCase(title);
 
                 finalNotice = adjustNoticeAgainstBalises(
                         finalNotice,
@@ -1167,6 +1178,91 @@ public class Main {
     }
     
 
+//    private static List<BaliseReference> findNearbyBalises(
+//            double noticePk,
+//            List<String> branchPath,
+//            Map<String, Segment> byId,
+//            boolean directMovement,
+//            double searchWindowMeters
+//    ) {
+//        List<BaliseReference> refs = new ArrayList<>();
+//
+//        double windowMin = noticePk - searchWindowMeters;
+//        double windowMax = noticePk + searchWindowMeters;
+//
+//        if (branchPath == null || branchPath.isEmpty()) return refs;
+//
+//        // Segmentos a inspeccionar: la rama + vecinos away del último segmento
+//        List<String> segmentsToCheck = new ArrayList<>(branchPath);
+//
+//        String lastSegId = branchPath.get(branchPath.size() - 1);
+//        Segment lastSeg = byId.get(lastSegId);
+//        
+//     // DEBUG temporal - añade aquí:
+//        System.out.println("    [BG-DEBUG] Último seg de rama: " + lastSegId);
+//        if (lastSeg != null) {
+//            System.out.println("    [BG-DEBUG] directNeighbors: " + lastSeg.directNeighbors);
+//            System.out.println("    [BG-DEBUG] inverseNeighbors: " + lastSeg.inverseNeighbors);
+//            List<String> awayNeighbors = directMovement
+//                    ? lastSeg.inverseNeighbors
+//                    : lastSeg.directNeighbors;
+//            System.out.println("    [BG-DEBUG] awayNeighbors a añadir: " + awayNeighbors);
+//            
+//            
+//        }
+//        
+//        if (lastSeg != null) {
+//            // INVERSA: away = directNeighbors | DIRECTA: away = inverseNeighbors
+//            List<String> awayNeighbors = directMovement
+//                    ? lastSeg.inverseNeighbors
+//                    : lastSeg.directNeighbors;
+//            for (String neighborId : awayNeighbors) {
+//                if (neighborId != null && !segmentsToCheck.contains(neighborId)) {
+//                    segmentsToCheck.add(neighborId);
+//                }
+//            }
+//        }
+//
+//        // Buscar BGs en todos los segmentos candidatos
+//        for (String segId : segmentsToCheck) {
+//            Segment s = byId.get(segId);
+//            if (s == null) { 
+//                System.out.println("    [BG-DEBUG] segId=" + segId + " -> null en byId"); 
+//                continue; 
+//            }
+//
+//            System.out.println("    [BG-DEBUG] Revisando seg=" + segId 
+//                + " minPK=" + s.minPK() + " maxPK=" + s.maxPK()
+//                + " windowMin=" + windowMin + " windowMax=" + windowMax);
+//
+//            if (s.maxPK() < windowMin || s.minPK() > windowMax) {
+//                System.out.println("    [BG-DEBUG] -> fuera de ventana, skip");
+//                continue;
+//            }
+//
+//            System.out.println("    [BG-DEBUG] -> BGs en este seg: " + s.getBaliseGroups().size());
+//           for (BaliseData.BaliseGroup bg : s.getBaliseGroups()) {
+////                Double refPk = directMovement
+////                        ? bg.getLastPkByNdx(byId)
+////                        : bg.getFirstPkByNdx(byId);
+//        	   Double refPk = bg.getLastPkByNdx(byId); // siempre ndx mayor = primera baliza del grupo
+//
+//                System.out.println("    [BG-DEBUG]   BG=" + bg.id + " refPk=" + refPk);
+//                
+//                if (refPk == null) {
+//                    System.out.println("    [BG-DEBUG]   -> refPk null, skip");
+//                    continue;
+//                }
+//                if (refPk < windowMin || refPk > windowMax) {
+//                    System.out.println("    [BG-DEBUG]   -> fuera de ventana (" + windowMin + "-" + windowMax + "), skip");
+//                    continue;
+//                }
+//                refs.add(new BaliseReference(bg.id, s.id, refPk));
+//            }
+//        }
+//
+//        return refs;
+//    }
     private static List<BaliseReference> findNearbyBalises(
             double noticePk,
             List<String> branchPath,
@@ -1174,23 +1270,40 @@ public class Main {
             boolean directMovement,
             double searchWindowMeters
     ) {
-    	List<BaliseReference> refs = new ArrayList<>();
+        List<BaliseReference> refs = new ArrayList<>();
 
         double windowMin = noticePk - searchWindowMeters;
         double windowMax = noticePk + searchWindowMeters;
 
         if (branchPath == null || branchPath.isEmpty()) return refs;
 
-        for (String segId : branchPath) {
+        // Segmentos a inspeccionar: la rama + vecinos away del último segmento
+        List<String> segmentsToCheck = new ArrayList<>(branchPath);
+
+        String lastSegId = branchPath.get(branchPath.size() - 1);
+        Segment lastSeg = byId.get(lastSegId);
+        if (lastSeg != null) {
+            // INVERSA: away = directNeighbors | DIRECTA: away = inverseNeighbors
+            List<String> awayNeighbors = directMovement
+                    ? lastSeg.inverseNeighbors
+                    : lastSeg.directNeighbors;
+            for (String neighborId : awayNeighbors) {
+                if (neighborId != null && !segmentsToCheck.contains(neighborId)) {
+                    segmentsToCheck.add(neighborId);
+                }
+            }
+        }
+
+        // Buscar BGs en todos los segmentos candidatos
+        for (String segId : segmentsToCheck) {
             Segment s = byId.get(segId);
             if (s == null) continue;
 
             if (s.maxPK() < windowMin || s.minPK() > windowMax) continue;
 
             for (BaliseData.BaliseGroup bg : s.getBaliseGroups()) {
-                Double refPk = directMovement
-                        ? bg.getLastPkByNdx(byId)
-                        : bg.getFirstPkByNdx(byId);
+                Double refPk = bg.getLastPkByNdx(byId); // siempre ndx mayor = primera baliza del grupo
+                     
 
                 if (refPk == null) continue;
                 if (refPk < windowMin || refPk > windowMax) continue;

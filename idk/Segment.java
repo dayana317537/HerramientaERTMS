@@ -222,4 +222,13 @@ public class Segment {
     }
     
     
+   /////////////////////////////////////////////////////////////////////////
+   // 							SEÑALES 								 //
+   //////////////////////////////////////////////////////////////////////////
+    public final SignalData signalData = new SignalData();
+
+    public List<SignalData.Signal> getSignals() {
+        return signalData.getAllSignals();
+    }
+    
 }
