@@ -18,7 +18,8 @@ public class Main {
     private static final double GRAD_PERMIL = 10.0; // 10 ‰
     private static final int SLOPE_DIR = -1;        // bajada
     
-    
+    //Margen de la LTV 
+    private static final double LTV_MARGIN = 7.0; // metros, editable
     //Balizas
     private static final double MIN_BG_GAP_METERS = 15.0;
     private static final double BG_SEARCH_WINDOW_METERS = 20.0;
@@ -36,10 +37,6 @@ public class Main {
         RailMLSegmentsStaxParser parser = new RailMLSegmentsStaxParser();
         List<Segment> segs = parser.parseSegments(xml);
 
-//        Map<String, Segment> byId = new HashMap<>();
-//        for (Segment s : segs) {
-//            byId.put(s.id, s);
-//        }
         Map<String, Segment> byId = new HashMap<>();
         for (Segment s : segs) {
             byId.put(s.id, s);
@@ -48,6 +45,7 @@ public class Main {
         for (Segment s : segs) {
             s.finalizeBaliseData(byId);
         }
+
         System.out.println("=== DEBUG BALIZAS RESUELTAS ===");
         for (Segment seg : segs) {
             if (!seg.getBaliseGroups().isEmpty()) {
@@ -68,11 +66,21 @@ public class Main {
 
         System.out.print("Introduce velocidad objetivo de la LTV (km/h, ej: 60): ");
         double ltvSpeedKmh = sc.nextDouble();
-        
-        
+
+        System.out.print("Introduce longitud de la LTV (en metros, ej: 100): ");
+        double ltvLengthMeters = sc.nextDouble();
+
+        double pkLtvEffectiveDirect  = pkLtv - LTV_MARGIN;
+        double pkLtvEffectiveInverse = pkLtv + ltvLengthMeters + LTV_MARGIN;
+
+        System.out.printf("Tramo LTV: [%.2f, %.2f]%n", pkLtv, pkLtv + ltvLengthMeters);
+        System.out.printf("Con margen (%.2f m): [%.2f, %.2f]%n",
+                LTV_MARGIN, pkLtvEffectiveDirect, pkLtvEffectiveInverse);
+        System.out.printf("PK de trabajo DIRECTA:  %.2f m%n", pkLtvEffectiveDirect);
+        System.out.printf("PK de trabajo INVERSA:  %.2f m%n", pkLtvEffectiveInverse);
 
         double aSlope = SLOPE_DIR * G * (GRAD_PERMIL / 1000.0);
-        double aEff = A_BRAKE + aSlope;
+        double aEff   = A_BRAKE + aSlope;
 
         System.out.println();
         System.out.println("=== DATOS DE FRENADO ===");
@@ -83,136 +91,175 @@ public class Main {
         System.out.printf("aEff = %.4f m/s^2%n", aEff);
 
         if (aEff <= 0) {
-            System.out.println("ERROR: la desaceleración efectiva es <= 0. No se puede garantizar frenado.");
+            System.out.println("ERROR: la desaceleración efectiva es <= 0.");
             return;
         }
 
-        //List<Segment> containing = findSegmentsContainingPk(segs, pkLtv);
-        List<Segment> containing = filterSegmentsByPkAndSpeed(segs, pkLtv, ltvSpeedKmh);
-        
+        // Buscar todos los segmentos que cubren alguno de los dos PKs efectivos
+        Set<String> allIds = new HashSet<>();
+        List<Segment> containingAll = new ArrayList<>();
+        for (Segment seg : segs) {
+            if (seg.mostRestrictiveSpeed == null || seg.mostRestrictiveSpeed < ltvSpeedKmh) continue;
+            if (seg.containsPK(pkLtvEffectiveDirect) || seg.containsPK(pkLtvEffectiveInverse)) {
+                if (allIds.add(seg.id)) containingAll.add(seg);
+            }
+        }
 
         System.out.println();
-
-        if (containing.isEmpty()) {
-            System.out.println("No encontré ningún segmento que contenga el PK " + pkLtv);
+        if (containingAll.isEmpty()) {
+            System.out.println("No encontré segmentos que cubran el tramo LTV.");
             return;
         }
-        
-        System.out.println("Segmentos que cumplen PK y velocidad:");
-        for (int i = 0; i < containing.size(); i++) {
-            Segment s = containing.get(i);
-            System.out.println(" " + (i + 1) + ") " + s.id 
-                + " [min=" + s.minPK() 
-                + ", max=" + s.maxPK() 
-                + ", vRestr=" + s.mostRestrictiveSpeed + "]");
+
+        System.out.println("Segmentos del tramo LTV:");
+        for (int i = 0; i < containingAll.size(); i++) {
+            Segment seg = containingAll.get(i);
+            System.out.println(" " + (i + 1) + ") " + seg.id
+                    + " [min=" + seg.minPK() + ", max=" + seg.maxPK()
+                    + ", vRestr=" + seg.mostRestrictiveSpeed + "]"
+                    + (seg.containsPK(pkLtvEffectiveDirect)  ? " <- DIRECTA"  : "")
+                    + (seg.containsPK(pkLtvEffectiveInverse) ? " <- INVERSA" : ""));
         }
 
-        System.out.print("Elige el segmento con el que quieres trabajar (1-" + containing.size() + "): ");
-        int choice = sc.nextInt();
-        choice--; // convertimos a índice
-
-        if (choice < 0 || choice >= containing.size()) {
+        System.out.print("Elige el segmento con el que quieres trabajar (1-" + containingAll.size() + "): ");
+        int choice = sc.nextInt() - 1;
+        if (choice < 0 || choice >= containingAll.size()) {
             System.out.println("Opción inválida.");
             return;
         }
 
-        Segment selectedSegment = containing.get(choice);
+        Segment selectedSegment = containingAll.get(choice);
         System.out.println("\nTrabajando con el segmento: " + selectedSegment.id);
-        
 
-        System.out.println("Segmentos que contienen el PK:");
-        for (Segment s : containing) {
-            System.out.println("  " + s.id + "  [min=" + s.minPK() + ", max=" + s.maxPK() + "]");
+        // Determinar automáticamente el segmento de inicio para cada dirección
+        // Primero buscar entre los candidatos, luego en todos los segmentos
+//       
+
+     // Primero intentar con el segmento elegido
+        Segment segDirect  = selectedSegment.containsPK(pkLtvEffectiveDirect)  ? selectedSegment : null;
+        Segment segInverse = selectedSegment.containsPK(pkLtvEffectiveInverse) ? selectedSegment : null;
+
+        // Si no lo contiene, buscar en vecinos DIRECTAMENTE CONECTADOS al elegido
+        if (segDirect == null) {
+            // DIRECTA busca hacia PK decreciente → vecinos inversos
+            for (String neighborId : selectedSegment.inverseNeighbors) {
+                Segment neighbor = byId.get(neighborId);
+                if (neighbor != null && neighbor.containsPK(pkLtvEffectiveDirect)) {
+                    segDirect = neighbor;
+                    break;
+                }
+            }
+        }
+        if (segInverse == null) {
+            // INVERSA busca hacia PK creciente → vecinos directos
+            for (String neighborId : selectedSegment.directNeighbors) {
+                Segment neighbor = byId.get(neighborId);
+                if (neighbor != null && neighbor.containsPK(pkLtvEffectiveInverse)) {
+                    segInverse = neighbor;
+                    break;
+                }
+            }
         }
 
-        
-        Segment s = selectedSegment;
-       // for (Segment s : containing) {
-            System.out.println();
-            System.out.println("==================================================");
-            System.out.println("SEGMENTO CANDIDATO: " + s.id);
-            System.out.println("==================================================");
-            
-            //Prueba para balizas 
-            System.out.println("Balizas del segmento " + s.id + ":");
-            for (BaliseData.Balise b : s.getBalises()) {
-                System.out.println("  " + b + " absPk=" + b.absolutePk(byId));
+        // Último recurso: buscar solo en containingAll (no en todo el mapa)
+        if (segDirect == null) {
+            for (Segment seg : containingAll) {
+                if (seg.containsPK(pkLtvEffectiveDirect)) { segDirect = seg; break; }
             }
-
-            System.out.println("BG del segmento " + s.id + ":");
-            for (BaliseData.BaliseGroup bg : s.getBaliseGroups()) {
-                System.out.println("  " + bg);
-                System.out.println("    firstByNdx PK = " + bg.getFirstPkByNdx(byId));
-                System.out.println("    lastByNdx  PK = " + bg.getLastPkByNdx(byId));
+        }
+        if (segInverse == null) {
+            for (Segment seg : containingAll) {
+                if (seg.containsPK(pkLtvEffectiveInverse)) { segInverse = seg; break; }
             }
-            //Prueba
-            Double directSpeedAtLtv = getSpeedAtPk(s, pkLtv, true);
-            Double inverseSpeedAtLtv = getSpeedAtPk(s, pkLtv, false);
+        }
+        System.out.println("Segmento de inicio DIRECTA:  " + (segDirect  != null ? segDirect.id  : "no encontrado"));
+        System.out.println("Segmento de inicio INVERSA:  " + (segInverse != null ? segInverse.id : "no encontrado"));
 
-            List<BranchSearchResult> directBranches = new ArrayList<>();
-            List<BranchSearchResult> inverseBranches = new ArrayList<>();
+        // Info del segmento seleccionado
+        System.out.println();
+        System.out.println("==================================================");
+        System.out.println("SEGMENTO CANDIDATO: " + selectedSegment.id);
+        System.out.println("==================================================");
 
+        System.out.println("Balizas del segmento " + selectedSegment.id + ":");
+        for (BaliseData.Balise b : selectedSegment.getBalises()) {
+            System.out.println("  " + b + " absPk=" + b.absolutePk(byId));
+        }
+        System.out.println("BG del segmento " + selectedSegment.id + ":");
+        for (BaliseData.BaliseGroup bg : selectedSegment.getBaliseGroups()) {
+            System.out.println("  " + bg);
+            System.out.println("    firstByNdx PK = " + bg.getFirstPkByNdx(byId));
+            System.out.println("    lastByNdx  PK = " + bg.getLastPkByNdx(byId));
+        }
+
+        System.out.println();
+        System.out.println("Detalle del segmento:");
+        System.out.println("  beginAbsPos = " + selectedSegment.beginAbsPos);
+        System.out.println("  endAbsPos   = " + selectedSegment.endAbsPos);
+        System.out.println("  length      = " + selectedSegment.length());
+        System.out.println("  directNeighbors  = " + selectedSegment.directNeighbors);
+        System.out.println("  inverseNeighbors = " + selectedSegment.inverseNeighbors);
+        System.out.println("  vRestr total = " + selectedSegment.mostRestrictiveSpeed);
+        System.out.println("  vRestr up    = " + selectedSegment.mostRestrictiveSpeedUp);
+        System.out.println("  vRestr down  = " + selectedSegment.mostRestrictiveSpeedDown);
+
+        System.out.println();
+        System.out.println("Perfil de velocidad UP:");
+        printSpeedProfile(selectedSegment.speedProfileUp);
+
+        System.out.println();
+        System.out.println("Perfil de velocidad DOWN:");
+        printSpeedProfile(selectedSegment.speedProfileDown);
+
+        // Calcular ramas
+        List<BranchSearchResult> directBranches  = new ArrayList<>();
+        List<BranchSearchResult> inverseBranches = new ArrayList<>();
+
+        // DIRECTA
+        if (segDirect == null) {
+            System.out.println("No hay segmento válido para DIRECTA.");
+        } else {
+            Double directSpeedAtLtv = getSpeedAtPk(segDirect, pkLtvEffectiveDirect, true);
             if (directSpeedAtLtv != null && directSpeedAtLtv <= ltvSpeedKmh) {
                 directBranches.add(new BranchSearchResult(
-                        List.of(s.id),
-                        0.0,
-                        null,
-                        false,
-                        String.format(
-                                "No hace falta LTV en DIRECTA: en el PK %.2f ya existe velocidad %.2f km/h <= %.2f km/h",
-                                pkLtv, directSpeedAtLtv, ltvSpeedKmh
-                        )
+                        List.of(segDirect.id), 0.0, null, false,
+                        String.format("No hace falta LTV en DIRECTA: velocidad %.2f <= %.2f km/h",
+                                directSpeedAtLtv, ltvSpeedKmh)
                 ));
             } else {
                 directBranches = findAllNoticeBranches(
-                        pkLtv, s.id, byId, true, ltvSpeedKmh, aEff, MAX_BACKWARD_SEARCH_METERS
+                        pkLtvEffectiveDirect, segDirect.id, byId, true,
+                        ltvSpeedKmh, aEff, MAX_BACKWARD_SEARCH_METERS
                 );
             }
+        }
 
+        // INVERSA
+        if (segInverse == null) {
+            System.out.println("No hay segmento válido para INVERSA.");
+        } else {
+            Double inverseSpeedAtLtv = getSpeedAtPk(segInverse, pkLtvEffectiveInverse, false);
             if (inverseSpeedAtLtv != null && inverseSpeedAtLtv <= ltvSpeedKmh) {
                 inverseBranches.add(new BranchSearchResult(
-                        List.of(s.id),
-                        0.0,
-                        null,
-                        false,
-                        String.format(
-                                "No hace falta LTV en INVERSA: en el PK %.2f ya existe velocidad %.2f km/h <= %.2f km/h",
-                                pkLtv, inverseSpeedAtLtv, ltvSpeedKmh
-                        )
+                        List.of(segInverse.id), 0.0, null, false,
+                        String.format("No hace falta LTV en INVERSA: velocidad %.2f <= %.2f km/h",
+                                inverseSpeedAtLtv, ltvSpeedKmh)
                 ));
             } else {
                 inverseBranches = findAllNoticeBranches(
-                        pkLtv, s.id, byId, false, ltvSpeedKmh, aEff, MAX_BACKWARD_SEARCH_METERS
+                        pkLtvEffectiveInverse, segInverse.id, byId, false,
+                        ltvSpeedKmh, aEff, MAX_BACKWARD_SEARCH_METERS
                 );
             }
+        }
 
-            System.out.println();
-            System.out.println("Detalle del segmento:");
-            System.out.println("  beginAbsPos = " + s.beginAbsPos);
-            System.out.println("  endAbsPos   = " + s.endAbsPos);
-            System.out.println("  length      = " + s.length());
-            System.out.println("  directNeighbors  = " + s.directNeighbors);
-            System.out.println("  inverseNeighbors = " + s.inverseNeighbors);
-            System.out.println("  vRestr total = " + s.mostRestrictiveSpeed);
-            System.out.println("  vRestr up    = " + s.mostRestrictiveSpeedUp);
-            System.out.println("  vRestr down  = " + s.mostRestrictiveSpeedDown);
+        System.out.println();
+        System.out.println("RAMAS EN DIRECTA (tren hacia PK creciente, búsqueda hacia PK decreciente):");
+        printBranchResults("DIRECTA", directBranches, byId, pkLtvEffectiveDirect);
 
-            System.out.println();
-            System.out.println("Perfil de velocidad UP:");
-            printSpeedProfile(s.speedProfileUp);
-
-            System.out.println();
-            System.out.println("Perfil de velocidad DOWN:");
-            printSpeedProfile(s.speedProfileDown);
-
-            System.out.println();
-            System.out.println("RAMAS EN DIRECTA (tren hacia PK creciente, búsqueda hacia PK decreciente):");
-            printBranchResults("DIRECTA", directBranches, byId , pkLtv);
-
-            System.out.println();
-            System.out.println("RAMAS EN INVERSA (tren hacia PK decreciente, búsqueda hacia PK creciente):");
-            printBranchResults("INVERSA", inverseBranches, byId , pkLtv);
-        //}
+        System.out.println();
+        System.out.println("RAMAS EN INVERSA (tren hacia PK decreciente, búsqueda hacia PK creciente):");
+        printBranchResults("INVERSA", inverseBranches, byId, pkLtvEffectiveInverse);
     }
 
     private static List<Segment> findSegmentsContainingPk(List<Segment> segs, double pk) {
@@ -429,7 +476,7 @@ public class Main {
         }
     }
 
-    private static void printBranchResults(String title, List<BranchSearchResult> branches, Map<String, Segment> byId ,double pkLtv ) {
+    private static void printBranchResults(String title, List<BranchSearchResult> branches, Map<String, Segment> byId ,double pkLtvEffective ) {
         if (branches == null || branches.isEmpty()) {
             System.out.println("  (sin ramas)");
             return;
@@ -466,7 +513,7 @@ public class Main {
             BrakingNoticeResult finalNotice = branch.notice;
             
             
-			SignalNoticeResolver.SignalNoticeResult signalResult = SignalNoticeResolver.findSignalInPath( branch.path, byId, directMovement, pkLtv);
+			SignalNoticeResolver.SignalNoticeResult signalResult = SignalNoticeResolver.findSignalInPath( branch.path, byId, directMovement, pkLtvEffective);
 
             if (signalResult.found) {
             	System.out.println("    Señal en el path: " + signalResult.signalName
@@ -713,8 +760,12 @@ public class Main {
                     double absFrom = minPk + si.fromPos;
                     double absTo = minPk + si.toPos;
 
-                    double overlapFrom = Math.max(absFrom, minPk);
-                    double overlapTo = Math.min(absTo, limitPk);
+//                    double overlapFrom = Math.max(absFrom, minPk);
+//                    double overlapTo = Math.min(absTo, limitPk);
+                    // CAMBIO: overlapTo puede ser el max del segmento si pkLtv < minPk
+                    double overlapFrom = absFrom;
+                    double overlapTo   = Math.min(absTo, Math.max(limitPk, minPk)); 
+
 
                     if (overlapTo <= overlapFrom) continue;
 
@@ -788,8 +839,11 @@ public class Main {
                     double absFrom = minPk + si.fromPos;
                     double absTo = minPk + si.toPos;
 
-                    double overlapFrom = Math.max(absFrom, startPk);
-                    double overlapTo = Math.min(absTo, maxPk);
+//                    double overlapFrom = Math.max(absFrom, startPk);
+//                    double overlapTo = Math.min(absTo, maxPk);
+                 // CAMBIO: overlapFrom puede ser el min del segmento si pkLtv > maxPk
+                    double overlapFrom = Math.max(absFrom, Math.min(startPk, maxPk)); 
+                    double overlapTo   = Math.min(absTo, maxPk);
 
                     if (overlapTo <= overlapFrom) continue;
 
@@ -1177,7 +1231,7 @@ public class Main {
         return rawNotice;
     }
     
-
+///////////////////////FUNCION CON DEBUGS ///////////////////////////
 //    private static List<BaliseReference> findNearbyBalises(
 //            double noticePk,
 //            List<String> branchPath,
