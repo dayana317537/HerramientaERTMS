@@ -45,7 +45,7 @@ public class Main {
         for (Segment s : segs) {
             s.finalizeBaliseData(byId);
         }
-
+        
         System.out.println("=== DEBUG BALIZAS RESUELTAS ===");
         for (Segment seg : segs) {
             if (!seg.getBaliseGroups().isEmpty()) {
@@ -160,6 +160,7 @@ public class Main {
                 }
             }
         }
+        
 
         // Último recurso: buscar solo en containingAll (no en todo el mapa)
         if (segDirect == null) {
@@ -253,6 +254,48 @@ public class Main {
             }
         }
 
+     // Recoger avisos de señal
+        List<SignalNoticeResolver.SignalNoticeResult> signalsDirect  = new ArrayList<>();
+        List<SignalNoticeResolver.SignalNoticeResult> signalsInverse = new ArrayList<>();
+
+        for (BranchSearchResult b : directBranches) {
+            SignalNoticeResolver.SignalNoticeResult sig =
+                SignalNoticeResolver.findSignalInPath(b.path, byId, true, pkLtvEffectiveDirect);
+            if (sig.found) signalsDirect.add(sig);
+        }
+        for (BranchSearchResult b : inverseBranches) {
+            SignalNoticeResolver.SignalNoticeResult sig =
+                SignalNoticeResolver.findSignalInPath(b.path, byId, false, pkLtvEffectiveInverse);
+            if (sig.found) signalsInverse.add(sig);
+        }
+
+        // Fusionar ramas
+        List<BranchSearchResult> allBranches = new ArrayList<>();
+        allBranches.addAll(directBranches);
+        allBranches.addAll(inverseBranches);
+
+        // Extraer NID_BG existentes
+        Set<Integer> existingNidBgs = TelegramGenerator.extractExistingNidBgs(segs);
+
+        // Generar telegramas
+        TelegramGenerator.LtvTelegramSet telegramSet = TelegramGenerator.generate(
+                allBranches,
+                signalsDirect,
+                signalsInverse,
+                pkLtv,
+                pkLtvEffectiveDirect,
+                pkLtvEffectiveInverse,
+                ltvSpeedKmh,
+                ltvLengthMeters,
+                LTV_MARGIN,
+                existingNidBgs
+        );
+
+        // Exportar y mostrar tabla
+        Path outputTxt = Path.of("telegramas_LTV_" + (int) pkLtv + ".txt");
+        TelegramGenerator.exportToFile(telegramSet, outputTxt);
+        TelegramGenerator.printSummaryTable(telegramSet, outputTxt); 
+        
         System.out.println();
         System.out.println("RAMAS EN DIRECTA (tren hacia PK creciente, búsqueda hacia PK decreciente):");
         printBranchResults("DIRECTA", directBranches, byId, pkLtvEffectiveDirect);
@@ -955,48 +998,8 @@ public class Main {
         }
     }
 
-    private static class BranchSearchResult {
-        List<String> path;
-        double backwardDistanceMeters;
-        BrakingNoticeResult notice;
-        boolean exactNoticeFound;
-        String reason;
 
-        BranchSearchResult(List<String> path,
-                           double backwardDistanceMeters,
-                           BrakingNoticeResult notice,
-                           boolean exactNoticeFound,
-                           String reason) {
-            this.path = path;
-            this.backwardDistanceMeters = backwardDistanceMeters;
-            this.notice = notice;
-            this.exactNoticeFound = exactNoticeFound;
-            this.reason = reason;
-        }
-    }
 
-    private static class ApproachInterval {
-        String segmentId;
-        double pkFrom;
-        double pkTo;
-        double pkTargetSide; // extremo más cercano a la LTV
-        double pkAwaySide;   // extremo más alejado de la LTV
-        double speedKmh;
-
-        ApproachInterval(String segmentId, double pkFrom, double pkTo,
-                         double pkTargetSide, double pkAwaySide, double speedKmh) {
-            this.segmentId = segmentId;
-            this.pkFrom = pkFrom;
-            this.pkTo = pkTo;
-            this.pkTargetSide = pkTargetSide;
-            this.pkAwaySide = pkAwaySide;
-            this.speedKmh = speedKmh;
-        }
-
-        double lengthMeters() {
-            return Math.abs(pkTo - pkFrom);
-        }
-    }
 //    private static class BaliseReference {
 //        String groupId;
 //        String segmentId;
@@ -1009,47 +1012,9 @@ public class Main {
 //        }
 //    }
 
-    private static class UsedInterval {
-        String segmentId;
-        double pkFrom;
-        double pkTo;
-        double speedKmh;
 
-        UsedInterval(String segmentId, double pkFrom, double pkTo, double speedKmh) {
-            this.segmentId = segmentId;
-            this.pkFrom = pkFrom;
-            this.pkTo = pkTo;
-            this.speedKmh = speedKmh;
-        }
 
-        double lengthMeters() {
-            return Math.abs(pkTo - pkFrom);
-        }
-    }
-
-    private static class BrakingNoticeResult {
-        String segmentId;
-        double pk;
-        double noticeSpeedKmh;
-        double targetSpeedKmh;
-        double totalDistanceMeters;
-        List<UsedInterval> usedIntervals;
-        boolean exactNoticeFound;
-
-        BrakingNoticeResult(String segmentId, double pk,
-                            double noticeSpeedKmh, double targetSpeedKmh,
-                            double totalDistanceMeters,
-                            List<UsedInterval> usedIntervals,
-                            boolean exactNoticeFound) {
-            this.segmentId = segmentId;
-            this.pk = pk;
-            this.noticeSpeedKmh = noticeSpeedKmh;
-            this.targetSpeedKmh = targetSpeedKmh;
-            this.totalDistanceMeters = totalDistanceMeters;
-            this.usedIntervals = usedIntervals;
-            this.exactNoticeFound = exactNoticeFound;
-        }
-    }
+  
     
     private static List<Segment> filterSegmentsByPkAndSpeed(List<Segment> segs, double pk, double speed) {
         List<Segment> result = new ArrayList<>();
@@ -1066,18 +1031,7 @@ public class Main {
         return result;
     }
     
-    //BALIZAS 
-    private static class BaliseReference {
-        String groupId;
-        String segmentId;
-        double pk;
 
-        BaliseReference(String groupId, String segmentId, double pk) {
-            this.groupId = groupId;
-            this.segmentId = segmentId;
-            this.pk = pk;
-        }
-    }
     
     private static Segment findSegmentContainingPkInNeighbors(
             Map<String, Segment> byId,
@@ -1356,7 +1310,7 @@ public class Main {
             if (s.maxPK() < windowMin || s.minPK() > windowMax) continue;
 
             for (BaliseData.BaliseGroup bg : s.getBaliseGroups()) {
-                Double refPk = bg.getLastPkByNdx(byId); // siempre ndx mayor = primera baliza del grupo
+                Double refPk = bg.getLastPkByNdx(byId); // siempre ndx mayor = primera baliza del grupo //MODIFFICAR ESTO 
                      
 
                 if (refPk == null) continue;
