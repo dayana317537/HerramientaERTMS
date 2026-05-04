@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.*?>
+
+<VBox xmlns="http://javafx.com/javafx"
+      xmlns:fx="http://javafx.com/fxml"
+      fx:controller="idk.HelloController"
+      styleClass="root-pane"
+      spacing="0">
+
+    <!-- Cabecera -->
+    <HBox styleClass="header" alignment="CENTER_LEFT">
+        <padding><Insets top="20" right="30" bottom="20" left="30"/></padding>
+        <VBox spacing="4">
+            <Label text="Calculador LTV" styleClass="header-title"/>
+            <Label text="Herramienta de cálculo de avisos ETCS · Sistema ATO" styleClass="header-sub"/>
+        </VBox>
+    </HBox>
+
+    <!-- Cuerpo -->
+    <VBox VBox.vgrow="ALWAYS" styleClass="body" spacing="24">
+        <padding><Insets top="32" right="40" bottom="32" left="40"/></padding>
+
+        <!-- Sección de parámetros -->
+        <VBox spacing="12" styleClass="card">
+            <padding><Insets top="24" right="24" bottom="24" left="24"/></padding>
+            <Label text="Parámetros de la LTV" styleClass="section-title"/>
+
+            <GridPane hgap="20" vgap="14">
+                <columnConstraints>
+                    <ColumnConstraints minWidth="160" prefWidth="180"/>
+                    <ColumnConstraints hgrow="ALWAYS"/>
+                </columnConstraints>
+
+                <Label text="PK de inicio (m)" GridPane.rowIndex="0" GridPane.columnIndex="0" styleClass="field-label"/>
+                <TextField fx:id="pkField" promptText="Ej: 17736" GridPane.rowIndex="0" GridPane.columnIndex="1" styleClass="field-input"/>
+
+                <Label text="Velocidad objetivo (km/h)" GridPane.rowIndex="1" GridPane.columnIndex="0" styleClass="field-label"/>
+                <TextField fx:id="speedField" promptText="Ej: 30" GridPane.rowIndex="1" GridPane.columnIndex="1" styleClass="field-input"/>
+
+                <Label text="Longitud de la LTV (m)" GridPane.rowIndex="2" GridPane.columnIndex="0" styleClass="field-label"/>
+                <TextField fx:id="lengthField" promptText="Ej: 100" GridPane.rowIndex="2" GridPane.columnIndex="1" styleClass="field-input"/>
+            </GridPane>
+        </VBox>
+
+        <!-- Sección de segmento -->
+        <VBox spacing="12" styleClass="card">
+            <padding><Insets top="24" right="24" bottom="24" left="24"/></padding>
+            <Label text="Selección de segmento" styleClass="section-title"/>
+
+            <HBox spacing="12" alignment="CENTER_LEFT">
+                <Button fx:id="buscarBtn" text="Buscar segmentos"
+                        onAction="#onBuscarSegmentos"
+                        styleClass="btn-secondary"/>
+                <ComboBox fx:id="segmentCombo" HBox.hgrow="ALWAYS"
+                          maxWidth="Infinity"
+                          promptText="— primero busca los segmentos —"
+                          styleClass="field-combo"/>
+            </HBox>
+
+            <Label fx:id="statusLabel" text="" styleClass="status-label" wrapText="true"/>
+        </VBox>
+
+        <!-- Botón calcular -->
+        <HBox alignment="CENTER_RIGHT">
+            <Button fx:id="calcularBtn" text="Calcular avisos →"
+                    onAction="#onCalcular"
+                    styleClass="btn-primary"
+                    disable="true"/>
+        </HBox>
+
+    </VBox>
+</VBox>

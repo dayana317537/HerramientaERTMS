@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<VBox xmlns="http://javafx.com/javafx"
+      xmlns:fx="http://javafx.com/fxml"
+      fx:controller="idk.ResultsController"
+      styleClass="root-pane"
+      spacing="0">
+
+    <!-- Cabecera -->
+    <HBox styleClass="header" alignment="CENTER_LEFT" spacing="16">
+        <padding><Insets top="20" right="30" bottom="20" left="30"/></padding>
+        <Button text="← Volver" onAction="#onVolver" styleClass="btn-back"/>
+        <VBox spacing="4">
+            <Label text="Resultados del cálculo" styleClass="header-title"/>
+            <Label fx:id="titleLabel" text="" styleClass="header-sub"/>
+        </VBox>
+    </HBox>
+
+    <!-- Cuerpo -->
+    <VBox VBox.vgrow="ALWAYS" spacing="20">
+        <padding><Insets top="24" right="32" bottom="24" left="32"/></padding>
+
+        <!-- Tabla de telegramas -->
+        <VBox spacing="10" styleClass="card" VBox.vgrow="ALWAYS">
+            <padding><Insets top="20" right="20" bottom="20" left="20"/></padding>
+
+            <HBox alignment="CENTER_LEFT" spacing="16">
+                <Label text="Avisos y telegramas generados" styleClass="section-title" HBox.hgrow="ALWAYS"/>
+                <Button text="⬇  Descargar .txt" onAction="#onDescargarTxt" styleClass="btn-primary"/>
+            </HBox>
+
+            <TableView fx:id="table" VBox.vgrow="ALWAYS">
+                <columns>
+                    <TableColumn fx:id="colBaliza"    text="Baliza"         prefWidth="220"/>
+                    <TableColumn fx:id="colDistancia" text="Distancia (m)"  prefWidth="130"/>
+                    <TableColumn fx:id="colPk"        text="PK (m)"         prefWidth="130"/>
+                    <TableColumn fx:id="colVia"       text="Vía"            prefWidth="80"/>
+                    <TableColumn fx:id="colTipo"      text="Tipo"           prefWidth="100"/>
+                </columns>
+                <placeholder>
+                    <Label text="No se han generado avisos para esta LTV." styleClass="table-placeholder"/>
+                </placeholder>
+            </TableView>
+        </VBox>
+
+        <!-- Detalle técnico (colapsable) -->
+        <TitledPane text="Detalle técnico del cálculo" expanded="false" styleClass="detail-pane">
+            <TextArea fx:id="detalleArea" editable="false" wrapText="false"
+                      prefHeight="200" styleClass="detail-area"/>
+        </TitledPane>
+
+    </VBox>
+</VBox>

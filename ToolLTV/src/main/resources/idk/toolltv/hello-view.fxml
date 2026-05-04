@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<VBox spacing="10" xmlns:fx="http://javafx.com/fxml"
+      fx:controller="idk.toolltv.HelloController">
+  <padding>
+    <Insets top="15" right="15" bottom="15" left="15"/>
+  </padding>
+
+  <Label text="Calculadora LTV"/>
+
+  <GridPane hgap="10" vgap="10">
+    <Label text="PK LTV:" GridPane.rowIndex="0" GridPane.columnIndex="0"/>
+    <TextField fx:id="pkField" GridPane.rowIndex="0" GridPane.columnIndex="1"/>
+
+    <Label text="Velocidad objetivo (km/h):" GridPane.rowIndex="1" GridPane.columnIndex="0"/>
+    <TextField fx:id="speedField" GridPane.rowIndex="1" GridPane.columnIndex="1"/>
+
+    <Label text="Longitud LTV (m):" GridPane.rowIndex="2" GridPane.columnIndex="0"/>
+    <TextField fx:id="lengthField" GridPane.rowIndex="2" GridPane.columnIndex="1"/>
+
+    <Label text="Segmento:" GridPane.rowIndex="3" GridPane.columnIndex="0"/>
+    <ComboBox fx:id="segmentCombo" prefWidth="420" GridPane.rowIndex="3" GridPane.columnIndex="1"/>
+  </GridPane>
+
+  <HBox spacing="10">
+    <Button text="Buscar segmentos" onAction="#onBuscarSegmentos"/>
+    <Button text="Calcular" onAction="#onCalcular"/>
+  </HBox>
+
+  <TextArea fx:id="resultArea" prefHeight="420" wrapText="true"/>
+</VBox>

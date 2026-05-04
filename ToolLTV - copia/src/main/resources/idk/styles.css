@@ -1,0 +1,212 @@
+/* ============================================================
+   CALCULADOR LTV — Estilos JavaFX
+   Paleta: oscuro profesional con acento azul ferroviario
+   ============================================================ */
+
+/* Variables de color simuladas mediante clases base */
+
+.root-pane {
+    -fx-background-color: #F4F6F9;
+    -fx-font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    -fx-font-size: 13px;
+}
+
+/* ---- Cabecera ---- */
+.header {
+    -fx-background-color: #1A2D4E;
+    -fx-min-height: 72px;
+}
+
+.header-title {
+    -fx-text-fill: #FFFFFF;
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+}
+
+.header-sub {
+    -fx-text-fill: #8BAFD4;
+    -fx-font-size: 12px;
+}
+
+/* ---- Tarjetas ---- */
+.card {
+    -fx-background-color: #FFFFFF;
+    -fx-background-radius: 8px;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 8, 0, 0, 2);
+}
+
+/* ---- Títulos de sección ---- */
+.section-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1A2D4E;
+}
+
+/* ---- Labels de campo ---- */
+.field-label {
+    -fx-text-fill: #4A5568;
+    -fx-font-size: 13px;
+}
+
+/* ---- Inputs ---- */
+.field-input {
+    -fx-background-color: #F7F9FC;
+    -fx-border-color: #CBD5E0;
+    -fx-border-radius: 5px;
+    -fx-background-radius: 5px;
+    -fx-padding: 8 12 8 12;
+    -fx-font-size: 13px;
+}
+
+.field-input:focused {
+    -fx-border-color: #2B6CB0;
+    -fx-background-color: #FFFFFF;
+    -fx-effect: dropshadow(gaussian, rgba(43,108,176,0.25), 4, 0, 0, 0);
+}
+
+/* ---- ComboBox ---- */
+.field-combo {
+    -fx-background-color: #F7F9FC;
+    -fx-border-color: #CBD5E0;
+    -fx-border-radius: 5px;
+    -fx-background-radius: 5px;
+    -fx-padding: 4 8 4 8;
+}
+
+/* ---- Botones ---- */
+.btn-primary {
+    -fx-background-color: #2B6CB0;
+    -fx-text-fill: #FFFFFF;
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+    -fx-background-radius: 6px;
+    -fx-padding: 10 22 10 22;
+    -fx-cursor: hand;
+}
+
+.btn-primary:hover {
+    -fx-background-color: #2C5282;
+}
+
+.btn-primary:disabled {
+    -fx-background-color: #A0AEC0;
+    -fx-text-fill: #E2E8F0;
+}
+
+.btn-secondary {
+    -fx-background-color: #EBF4FF;
+    -fx-text-fill: #2B6CB0;
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+    -fx-background-radius: 6px;
+    -fx-border-color: #BEE3F8;
+    -fx-border-radius: 6px;
+    -fx-padding: 10 18 10 18;
+    -fx-cursor: hand;
+}
+
+.btn-secondary:hover {
+    -fx-background-color: #BEE3F8;
+}
+
+.btn-back {
+    -fx-background-color: transparent;
+    -fx-text-fill: #8BAFD4;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+    -fx-border-color: #4A6FA5;
+    -fx-border-radius: 5px;
+    -fx-background-radius: 5px;
+    -fx-padding: 6 14 6 14;
+}
+
+.btn-back:hover {
+    -fx-background-color: rgba(139,175,212,0.15);
+    -fx-text-fill: #FFFFFF;
+}
+
+/* ---- Status label ---- */
+.status-label {
+    -fx-font-size: 12px;
+}
+
+.status-ok {
+    -fx-text-fill: #276749;
+    -fx-background-color: #F0FFF4;
+    -fx-background-radius: 4px;
+    -fx-padding: 4 8 4 8;
+}
+
+.status-error {
+    -fx-text-fill: #9B2C2C;
+    -fx-background-color: #FFF5F5;
+    -fx-background-radius: 4px;
+    -fx-padding: 4 8 4 8;
+}
+
+/* ---- Tabla ---- */
+.table-view {
+    -fx-background-color: transparent;
+    -fx-border-color: #E2E8F0;
+    -fx-border-radius: 6px;
+}
+
+.table-view .column-header-background {
+    -fx-background-color: #EBF4FF;
+}
+
+.table-view .column-header .label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #1A2D4E;
+    -fx-font-size: 12px;
+}
+
+.table-row-cell:even {
+    -fx-background-color: #FFFFFF;
+}
+
+.table-row-cell:odd {
+    -fx-background-color: #F7FAFC;
+}
+
+.table-row-cell:selected {
+    -fx-background-color: #BEE3F8;
+    -fx-text-fill: #1A2D4E;
+}
+
+.table-placeholder {
+    -fx-text-fill: #A0AEC0;
+    -fx-font-size: 13px;
+}
+
+/* ---- Tags de tipo ---- */
+.tag-signal {
+    -fx-text-fill: #744210;
+    -fx-font-weight: bold;
+}
+
+.tag-braking {
+    -fx-text-fill: #1A365D;
+    -fx-font-weight: bold;
+}
+
+/* ---- Detalle técnico ---- */
+.detail-pane {
+    -fx-background-color: #FFFFFF;
+    -fx-background-radius: 8px;
+}
+
+.detail-pane > .title {
+    -fx-background-color: #EDF2F7;
+    -fx-font-weight: bold;
+    -fx-text-fill: #4A5568;
+    -fx-background-radius: 8px;
+}
+
+.detail-area {
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-font-size: 11px;
+    -fx-background-color: #F7FAFC;
+    -fx-text-fill: #2D3748;
+    -fx-border-color: #E2E8F0;
+}

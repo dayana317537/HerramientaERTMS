@@ -1,0 +1,326 @@
+========================================
+  TELEGRAMAS LTV - ETCS
+  PK LTV:      17736.00 m
+  Velocidad:   30.0 km/h
+  Longitud:    10.0 m
+  Margen:      7.0 m
+  NID_TSR:     1
+  NID_C:       920
+  M_VERSION:   2.3
+========================================
+
+----------------------------------------
+BG:          BG920-6000
+PK aviso:    15483.00 m
+Distancia:   1725.18 m
+Tipo:        Frenado
+----------------------------------------
+=== BALIZA N_PIG=0 ===
+
+-- CABECERA --
+Q_UPDOWN   = 1
+M_VERSION  = 2.3
+Q_MEDIA    = 0
+N_PIG      = 0
+N_TOTAL    = 010
+M_DUP      = 0
+M_MCOUNT   = 255
+NID_C      = 920
+NID_BG     = 6000
+Q_LINK     = 0
+
+-- PAQUETE 65 (TSR) --
+NID_PACKET = 65
+Q_DIR      = 1
+L_PACKET   = 71
+Q_SCALE    = 1
+NID_TSR    = 1
+D_TSR      = 2246
+L_TSR      = 24
+Q_FRONT    = 0
+V_TSR      = 6
+
+-- PAQUETE 255 (CIERRE) --
+NID_PACKET = 255
+
+=== BALIZA N_PIG=1 ===
+
+-- CABECERA --
+Q_UPDOWN   = 1
+M_VERSION  = 2.3
+Q_MEDIA    = 0
+N_PIG      = 1
+N_TOTAL    = 010
+M_DUP      = 0
+M_MCOUNT   = 255
+NID_C      = 920
+NID_BG     = 6000
+Q_LINK     = 0
+
+-- PAQUETE 65 (TSR) --
+NID_PACKET = 65
+Q_DIR      = 1
+L_PACKET   = 71
+Q_SCALE    = 1
+NID_TSR    = 1
+D_TSR      = 2246
+L_TSR      = 24
+Q_FRONT    = 0
+V_TSR      = 6
+
+-- PAQUETE 255 (CIERRE) --
+NID_PACKET = 255
+
+
+----------------------------------------
+BG:          BG920-6001
+PK aviso:    19038.00 m
+Distancia:   702.85 m
+Tipo:        Frenado
+----------------------------------------
+=== BALIZA N_PIG=0 ===
+
+-- CABECERA --
+Q_UPDOWN   = 1
+M_VERSION  = 2.3
+Q_MEDIA    = 0
+N_PIG      = 0
+N_TOTAL    = 010
+M_DUP      = 0
+M_MCOUNT   = 255
+NID_C      = 920
+NID_BG     = 6001
+Q_LINK     = 0
+
+-- PAQUETE 65 (TSR) --
+NID_PACKET = 65
+Q_DIR      = 1
+L_PACKET   = 71
+Q_SCALE    = 1
+NID_TSR    = 1
+D_TSR      = 1285
+L_TSR      = 24
+Q_FRONT    = 0
+V_TSR      = 6
+
+-- PAQUETE 255 (CIERRE) --
+NID_PACKET = 255
+
+=== BALIZA N_PIG=1 ===
+
+-- CABECERA --
+Q_UPDOWN   = 1
+M_VERSION  = 2.3
+Q_MEDIA    = 0
+N_PIG      = 1
+N_TOTAL    = 010
+M_DUP      = 0
+M_MCOUNT   = 255
+NID_C      = 920
+NID_BG     = 6001
+Q_LINK     = 0
+
+-- PAQUETE 65 (TSR) --
+NID_PACKET = 65
+Q_DIR      = 1
+L_PACKET   = 71
+Q_SCALE    = 1
+NID_TSR    = 1
+D_TSR      = 1285
+L_TSR      = 24
+Q_FRONT    = 0
+V_TSR      = 6
+
+-- PAQUETE 255 (CIERRE) --
+NID_PACKET = 255
+
+
+----------------------------------------
+BG:          BG920-6002
+PK aviso:    18729.00 m
+Distancia:   0.00 m
+Tipo:        Frenado
+----------------------------------------
+=== BALIZA N_PIG=0 ===
+
+-- CABECERA --
+Q_UPDOWN   = 1
+M_VERSION  = 2.3
+Q_MEDIA    = 0
+N_PIG      = 0
+N_TOTAL    = 010
+M_DUP      = 0
+M_MCOUNT   = 255
+NID_C      = 920
+NID_BG     = 6002
+Q_LINK     = 0
+
+-- PAQUETE 65 (TSR) --
+NID_PACKET = 65
+Q_DIR      = 1
+L_PACKET   = 71
+Q_SCALE    = 1
+NID_TSR    = 1
+D_TSR      = 976
+L_TSR      = 24
+Q_FRONT    = 0
+V_TSR      = 6
+
+-- PAQUETE 255 (CIERRE) --
+NID_PACKET = 255
+
+=== BALIZA N_PIG=1 ===
+
+-- CABECERA --
+Q_UPDOWN   = 1
+M_VERSION  = 2.3
+Q_MEDIA    = 0
+N_PIG      = 1
+N_TOTAL    = 010
+M_DUP      = 0
+M_MCOUNT   = 255
+NID_C      = 920
+NID_BG     = 6002
+Q_LINK     = 0
+
+-- PAQUETE 65 (TSR) --
+NID_PACKET = 65
+Q_DIR      = 1
+L_PACKET   = 71
+Q_SCALE    = 1
+NID_TSR    = 1
+D_TSR      = 976
+L_TSR      = 24
+Q_FRONT    = 0
+V_TSR      = 6
+
+-- PAQUETE 255 (CIERRE) --
+NID_PACKET = 255
+
+
+----------------------------------------
+BG:          BG920-6003
+PK aviso:    16400.00 m
+Distancia:   1329.00 m
+Tipo:        Señal
+----------------------------------------
+=== BALIZA N_PIG=0 ===
+
+-- CABECERA --
+Q_UPDOWN   = 1
+M_VERSION  = 2.3
+Q_MEDIA    = 0
+N_PIG      = 0
+N_TOTAL    = 010
+M_DUP      = 0
+M_MCOUNT   = 255
+NID_C      = 920
+NID_BG     = 6003
+Q_LINK     = 0
+
+-- PAQUETE 65 (TSR) --
+NID_PACKET = 65
+Q_DIR      = 1
+L_PACKET   = 71
+Q_SCALE    = 1
+NID_TSR    = 1
+D_TSR      = 1329
+L_TSR      = 24
+Q_FRONT    = 0
+V_TSR      = 6
+
+-- PAQUETE 255 (CIERRE) --
+NID_PACKET = 255
+
+=== BALIZA N_PIG=1 ===
+
+-- CABECERA --
+Q_UPDOWN   = 1
+M_VERSION  = 2.3
+Q_MEDIA    = 0
+N_PIG      = 1
+N_TOTAL    = 010
+M_DUP      = 0
+M_MCOUNT   = 255
+NID_C      = 920
+NID_BG     = 6003
+Q_LINK     = 0
+
+-- PAQUETE 65 (TSR) --
+NID_PACKET = 65
+Q_DIR      = 1
+L_PACKET   = 71
+Q_SCALE    = 1
+NID_TSR    = 1
+D_TSR      = 1329
+L_TSR      = 24
+Q_FRONT    = 0
+V_TSR      = 6
+
+-- PAQUETE 255 (CIERRE) --
+NID_PACKET = 255
+
+
+----------------------------------------
+BG:          BG920-6004
+PK aviso:    18736.00 m
+Distancia:   983.00 m
+Tipo:        Señal
+----------------------------------------
+=== BALIZA N_PIG=0 ===
+
+-- CABECERA --
+Q_UPDOWN   = 1
+M_VERSION  = 2.3
+Q_MEDIA    = 0
+N_PIG      = 0
+N_TOTAL    = 010
+M_DUP      = 0
+M_MCOUNT   = 255
+NID_C      = 920
+NID_BG     = 6004
+Q_LINK     = 0
+
+-- PAQUETE 65 (TSR) --
+NID_PACKET = 65
+Q_DIR      = 1
+L_PACKET   = 71
+Q_SCALE    = 1
+NID_TSR    = 1
+D_TSR      = 983
+L_TSR      = 24
+Q_FRONT    = 0
+V_TSR      = 6
+
+-- PAQUETE 255 (CIERRE) --
+NID_PACKET = 255
+
+=== BALIZA N_PIG=1 ===
+
+-- CABECERA --
+Q_UPDOWN   = 1
+M_VERSION  = 2.3
+Q_MEDIA    = 0
+N_PIG      = 1
+N_TOTAL    = 010
+M_DUP      = 0
+M_MCOUNT   = 255
+NID_C      = 920
+NID_BG     = 6004
+Q_LINK     = 0
+
+-- PAQUETE 65 (TSR) --
+NID_PACKET = 65
+Q_DIR      = 1
+L_PACKET   = 71
+Q_SCALE    = 1
+NID_TSR    = 1
+D_TSR      = 983
+L_TSR      = 24
+Q_FRONT    = 0
+V_TSR      = 6
+
+-- PAQUETE 255 (CIERRE) --
+NID_PACKET = 255
+
+
