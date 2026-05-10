@@ -27,12 +27,12 @@ public class Main {
    
     
     // Límite de exploración hacia atrás desde la LTV
-    private static final double MAX_BACKWARD_SEARCH_METERS = 4000.0;
+    private static final double MAX_BACKWARD_SEARCH_METERS = 8000.0;
 
     public static void main(String[] args) throws Exception {
         Locale.setDefault(Locale.US);
 
-        Path xml = Path.of("C:/Users/49204/Desktop/Herramienta/VIA_ATO_TOLUCA_DISERTMS (99).xml");
+        Path xml = Path.of("C:/Users/49204/Desktop/Herramienta/VIA_VI_RA_54_Extendido.xml");
 
         RailMLSegmentsStaxParser parser = new RailMLSegmentsStaxParser();
         List<Segment> segs = parser.parseSegments(xml);
@@ -99,7 +99,12 @@ public class Main {
         Set<String> allIds = new HashSet<>();
         List<Segment> containingAll = new ArrayList<>();
         for (Segment seg : segs) {
-            if (seg.mostRestrictiveSpeed == null || seg.mostRestrictiveSpeed < ltvSpeedKmh) continue;
+//            if (seg.mostRestrictiveSpeed == null || seg.mostRestrictiveSpeed < ltvSpeedKmh) continue;
+//            if (seg.containsPK(pkLtvEffectiveDirect) || seg.containsPK(pkLtvEffectiveInverse)) {
+//                if (allIds.add(seg.id)) containingAll.add(seg);
+//            }
+        	if (seg.mostRestrictiveSpeed != null && seg.mostRestrictiveSpeed < ltvSpeedKmh) continue;
+            
             if (seg.containsPK(pkLtvEffectiveDirect) || seg.containsPK(pkLtvEffectiveInverse)) {
                 if (allIds.add(seg.id)) containingAll.add(seg);
             }
@@ -220,7 +225,7 @@ public class Main {
         if (segDirect == null) {
             System.out.println("No hay segmento válido para DIRECTA.");
         } else {
-            Double directSpeedAtLtv = getSpeedAtPk(segDirect, pkLtvEffectiveDirect, true);
+            Double directSpeedAtLtv = getSpeedAtPk(segDirect, pkLtvEffectiveDirect, true , byId);
             if (directSpeedAtLtv != null && directSpeedAtLtv <= ltvSpeedKmh) {
                 directBranches.add(new BranchSearchResult(
                         List.of(segDirect.id), 0.0, null, false,
@@ -239,7 +244,7 @@ public class Main {
         if (segInverse == null) {
             System.out.println("No hay segmento válido para INVERSA.");
         } else {
-            Double inverseSpeedAtLtv = getSpeedAtPk(segInverse, pkLtvEffectiveInverse, false);
+            Double inverseSpeedAtLtv = getSpeedAtPk(segInverse, pkLtvEffectiveInverse, false, byId);
             if (inverseSpeedAtLtv != null && inverseSpeedAtLtv <= ltvSpeedKmh) {
                 inverseBranches.add(new BranchSearchResult(
                         List.of(segInverse.id), 0.0, null, false,
@@ -315,11 +320,11 @@ public class Main {
         return res;
     }
     
-    private static Double getSpeedAtPk(Segment s, double pk, boolean directMovement) {
+    private static Double getSpeedAtPk(Segment s, double pk, boolean directMovement, Map<String, Segment> byId) {
         if (s == null) return null;
         if (!s.containsPK(pk)) return null;
 
-        List<Segment.SpeedInterval> profile = directMovement ? s.speedProfileUp : s.speedProfileDown;
+        List<Segment.SpeedInterval> profile = getEffectiveProfile(s, directMovement, byId);;
         if (profile == null || profile.isEmpty()) return null;
 
         double relPos = pk - s.minPK();
@@ -564,6 +569,17 @@ public class Main {
             	System.out.println("    → Aviso colocado en señal: PK=" + signalResult.pk);
             }
 
+         // Ajustar la señal contra balizas
+            signalResult = adjustSignalNoticeAgainstBalises(
+                    signalResult,
+                    branch.path,
+                    byId,
+                    directMovement,
+                    MIN_BG_GAP_METERS,
+                    BG_SEARCH_WINDOW_METERS
+            );
+            
+            
             if (finalNotice != null && finalNotice.exactNoticeFound) {
                // boolean directMovement = "DIRECTA".equalsIgnoreCase(title);
 
@@ -790,7 +806,7 @@ public class Main {
             if (s == null) continue;
 
             double minPk = s.minPK();
-            List<Segment.SpeedInterval> profile = s.speedProfileUp;
+            List<Segment.SpeedInterval> profile = getEffectiveProfile (s ,true , byId);
             if (profile == null || profile.isEmpty()) continue;
 
             if (i == 0 && segId.equals(startSegmentId)) {
@@ -869,7 +885,7 @@ public class Main {
             double minPk = s.minPK();
             double maxPk = s.maxPK();
 
-            List<Segment.SpeedInterval> profile = s.speedProfileDown;
+            List<Segment.SpeedInterval> profile = getEffectiveProfile (s, false, byId);
             if (profile == null || profile.isEmpty()) continue;
 
             if (i == 0 && segId.equals(startSegmentId)) {
@@ -1310,7 +1326,7 @@ public class Main {
             if (s.maxPK() < windowMin || s.minPK() > windowMax) continue;
 
             for (BaliseData.BaliseGroup bg : s.getBaliseGroups()) {
-                Double refPk = bg.getLastPkByNdx(byId); // siempre ndx mayor = primera baliza del grupo //MODIFFICAR ESTO 
+                Double refPk = bg.getFirstPkByNdx(byId); // ndx=0, primera baliza del grupo
                      
 
                 if (refPk == null) continue;
@@ -1323,7 +1339,119 @@ public class Main {
         return refs;
     }
 
+    /**
+     * Ajusta un aviso de SEÑAL contra balizas existentes.
+     * Similar a adjustNoticeAgainstBalises pero para SignalNoticeResult.
+     */
+    private static SignalNoticeResolver.SignalNoticeResult adjustSignalNoticeAgainstBalises(
+            SignalNoticeResolver.SignalNoticeResult rawSignal,
+            List<String> branchPath,
+            Map<String, Segment> byId,
+            boolean directMovement,
+            double minGapMeters,
+            double searchWindowMeters
+    ){
+        if (rawSignal == null || !rawSignal.found) return rawSignal;
 
+        double adjustedPk = rawSignal.pk;
+        String adjustedSegmentId = rawSignal.segmentId;
+
+        if (DEBUG_BG) {
+            System.out.println("    [BG-SIGNAL] Aviso de señal inicial:");
+            System.out.println("         segmento=" + rawSignal.segmentId + " pk=" + rawSignal.pk);
+            System.out.println("         sentido=" + (directMovement ? "DIRECTA" : "INVERSA"));
+        }
+
+        for (int guard = 0; guard < 50; guard++) {
+            if (DEBUG_BG) {
+                System.out.printf("    [BG-SIGNAL] Iteración %d, ventana [%.2f, %.2f]%n",
+                        guard + 1,
+                        adjustedPk - searchWindowMeters,
+                        adjustedPk + searchWindowMeters);
+            }
+
+            List<BaliseReference> nearby = findNearbyBalises(
+                    adjustedPk, branchPath, byId, directMovement, searchWindowMeters
+            );
+
+            if (DEBUG_BG) {
+                if (nearby.isEmpty()) {
+                    System.out.println("    [BG-SIGNAL] No hay BG cercanos.");
+                } else {
+                    System.out.println("    [BG-SIGNAL] BG cercanos:");
+                    for (BaliseReference ref : nearby) {
+                        double delta = directMovement ? (adjustedPk - ref.pk) : (ref.pk - adjustedPk);
+                        System.out.printf("         BG=%s seg=%s pk=%.2f delta=%.2f%n",
+                                ref.groupId, ref.segmentId, ref.pk, delta);
+                    }
+                }
+            }
+
+            BaliseReference conflict = findNearestConflictingBalise(
+                    adjustedPk, branchPath, byId, directMovement, minGapMeters, searchWindowMeters
+            );
+
+            if (conflict == null) {
+                if (DEBUG_BG) {
+                    System.out.println("    [BG-SIGNAL] No hay conflicto. Aviso de señal válido.");
+                    System.out.println("    [BG-SIGNAL] Aviso final: segmento=" + adjustedSegmentId + " pk=" + adjustedPk);
+                }
+
+                return new SignalNoticeResolver.SignalNoticeResult(
+                        true,
+                        adjustedSegmentId,
+                        adjustedPk,
+                        rawSignal.signalName,
+                        rawSignal.signalId
+                );
+            }
+
+            double delta = directMovement ? (adjustedPk - conflict.pk) : (conflict.pk - adjustedPk);
+
+            if (DEBUG_BG) {
+                System.out.printf("    [BG-SIGNAL] CONFLICTO con BG=%s seg=%s pk=%.2f delta=%.2f < %.2f%n",
+                        conflict.groupId, conflict.segmentId, conflict.pk, delta, minGapMeters);
+            }
+
+            if (directMovement) { // NUEVO COMPORTAMIENTO: Empujar el aviso hacia ADELANTE de la señal
+                adjustedPk = conflict.pk + minGapMeters;
+            } else {
+                adjustedPk = conflict.pk - minGapMeters;
+            }
+
+            Segment newSeg = findSegmentContainingPkInBranch(byId, branchPath, adjustedPk);
+
+            if (newSeg == null) {
+                // Intentar en vecinos del último segmento de la rama en dirección away
+                newSeg = findSegmentContainingPkInNeighbors(byId, branchPath, adjustedPk, directMovement);
+            }
+            
+            if (DEBUG_BG) {
+                System.out.printf("    [BG-SIGNAL] Aviso desplazado a pk=%.2f%n", adjustedPk);
+            }
+
+            if (newSeg == null) {
+                if (DEBUG_BG) {
+                    System.out.println("    [BG-SIGNAL] ERROR: el aviso ajustado no cae en ningún segmento.");
+                }
+
+                return rawSignal;
+            }
+
+            adjustedSegmentId = newSeg.id;
+
+            if (DEBUG_BG) {
+                System.out.println("    [BG-SIGNAL] Nuevo segmento del aviso: " + adjustedSegmentId);
+            }
+        }
+
+        if (DEBUG_BG) {
+            System.out.println("    [BG-SIGNAL] Se alcanzó el máximo de iteraciones de ajuste.");
+        }
+
+        return rawSignal;
+    }
+    
 private static Segment findSegmentContainingPk(Map<String, Segment> byId, double pk) {
     for (Segment s : byId.values()) {
         if (s.containsPK(pk)) return s;
@@ -1370,4 +1498,59 @@ private static Segment findSegmentContainingPkInBranch(
     }
     return null;
 }
+
+
+///VELOCIDADES DE LOS SEGMENTOS QUE NO TIENE UN SSP AL INICIO , HEREDAN DE LOS SEGMENTOS ANTERIORES 
+private static Double findSpeedseg (Segment currentSeg , boolean direction , Map<String , Segment> byId , Set<String> visited ) {
+	if (currentSeg == null) return null;
+    visited.add(currentSeg.id); // Evitar bucles infinitos en grafos circulares
+
+    // Buscar aguas arriba (de dónde viene el tren)
+    List<String> prevNeighbors = direction ? currentSeg.inverseNeighbors : currentSeg.directNeighbors;
+    
+    for (String prevId : prevNeighbors) {
+        if (visited.contains(prevId)) continue;
+        Segment prevSeg = byId.get(prevId);
+        if (prevSeg == null) continue;
+
+        List<Segment.SpeedInterval> profile = direction ? prevSeg.speedProfileUp : prevSeg.speedProfileDown;
+        
+        // Si el segmento anterior SÍ tiene velocidad, cogemos el valor de su tramo final
+        if (profile != null && !profile.isEmpty()) {
+            return profile.get(profile.size() - 1).vMax;
+        }
+
+        // Si el anterior también está vacío, seguimos buscando hacia atrás recursivamente
+        Double inheritedSpeed = findSpeedseg(prevSeg, direction, byId, visited);
+        if (inheritedSpeed != null) return inheritedSpeed;
+    }
+    
+    return null; // Si llegamos al principio del todo y no hay nada
+}
+
+/**
+ * Wrapper: Devuelve el perfil real del XML o genera uno virtual heredado si está vacío.
+ */
+private static List<Segment.SpeedInterval> getEffectiveProfile (Segment seg, boolean directMovement, Map<String, Segment> byId) {
+   
+	List<Segment.SpeedInterval> profile = directMovement ? seg.speedProfileUp : seg.speedProfileDown;
+    
+    // Si el segmento tiene su propio perfil en el XML, lo usamos
+    if (profile != null && !profile.isEmpty()) {
+        return profile;
+    }
+
+    // Si está vacío, heredamos la velocidad topológicamente
+    Double inheritedSpeed = findSpeedseg(seg, directMovement, byId, new HashSet<>());
+    
+    if (inheritedSpeed == null) {
+        // Si no se encuentra velocidad por herencia (ej: primer segmento del mapa sin datos)
+        // se puede devolver una lista vacía o asumir una velocidad por defecto segura.
+        return new ArrayList<>(); 
+    }
+
+    // Creamos un perfil virtual que abarca todo el segmento (desde pos 0.0 hasta su longitud total)
+    return List.of(new Segment.SpeedInterval(0.0, seg.length(), inheritedSpeed));
+}
+
 }

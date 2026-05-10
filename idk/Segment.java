@@ -150,7 +150,7 @@ public class Segment {
 
     public static String neighborIdFromRef(String ref) {
         if (ref == null) return null;
-        int idx = ref.indexOf("_connection_");
+        int idx = ref.indexOf("_connection");
         if (idx <= 0) return null;
         return ref.substring(0, idx);
     }
